@@ -50,3 +50,33 @@ harness = false
 lto = true
 strip = true
 
+# Config for CI release builds via cargo-dist
+[profile.dist]
+inherits = "release"
+
+[workspace.metadata.dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+installers = ["shell", "powershell"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+unix-archive = ".tar.gz"
+checksum = "sha256"
+github-build-setup = "../build-setup.yml"
+pr-run-mode = "skip"
+plan-jobs = ["./main"]
+
+[workspace.metadata.dist.github-custom-runners.aarch64-unknown-linux-gnu]
+runner = "ubuntu-24.04"
+host = "x86_64-unknown-linux-gnu"
+
+[workspace.metadata.dist.github-custom-runners.aarch64-unknown-linux-musl]
+runner = "ubuntu-24.04"
+host = "x86_64-unknown-linux-gnu"
