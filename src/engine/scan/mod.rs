@@ -526,6 +526,10 @@ pub struct Scanner {
     absorber_strings: Vec<String>,
     /// Per-rule bitflags gating optional filter stages (spelling::FILTER_*).
     rule_filter_flags: Vec<u8>,
+    /// Per-rule dispatch class for monomorphic fast paths (spelling::CLASS_*).
+    /// Computed from filter flags at build time; determines which
+    /// process_match_dispatch<CLASS> variant handles each AC hit.
+    rule_classes: Vec<u8>,
 }
 
 impl Scanner {
@@ -817,6 +821,23 @@ impl Scanner {
             })
             .collect();
 
+        // Dispatch class per rule: determines which monomorphic fast path
+        // handles each AC hit.  Positional implies FULL; context clues
+        // without positional implies CLUED; everything else is SIMPLE.
+        let rule_classes: Vec<u8> = rule_filter_flags
+            .iter()
+            .map(|&f| {
+                if f & spelling::FILTER_HAS_POSITIONAL != 0 {
+                    spelling::CLASS_FULL
+                } else if f & (spelling::FILTER_HAS_POS_CLUES | spelling::FILTER_HAS_NEG_CLUES) != 0
+                {
+                    spelling::CLASS_CLUED
+                } else {
+                    spelling::CLASS_SIMPLE
+                }
+            })
+            .collect();
+
         Self {
             spelling_ac_charwise,
             spelling_ac_bytewise,
@@ -831,6 +852,7 @@ impl Scanner {
             rule_positional_clues,
             absorber_strings,
             rule_filter_flags,
+            rule_classes,
         }
     }
 

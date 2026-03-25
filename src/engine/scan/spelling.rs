@@ -25,8 +25,20 @@ pub(crate) const FILTER_IS_DELETION: u8 = 1 << 5;
 
 const FILTER_HAS_ANY_CLUE: u8 = FILTER_HAS_POS_CLUES | FILTER_HAS_NEG_CLUES;
 
+// Rule dispatch classes: monomorphic fast paths for common rule shapes.
+// Computed once at AC build time, dispatched per-match to eliminate dead
+// branches in the filter cascade (45.2 step 2).
+pub(crate) const CLASS_SIMPLE: u8 = 0; // no context clues, no positional
+pub(crate) const CLASS_CLUED: u8 = 1; // context clues only (pos/neg)
+pub(crate) const CLASS_FULL: u8 = 2; // has positional clues (± context)
+
 impl Scanner {
     /// Run spelling rules over `text`, appending matches to `issues`.
+    ///
+    /// Dispatches each AC hit to one of three monomorphic fast paths based
+    /// on the precomputed rule class (45.2 step 2).  The compiler generates
+    /// three separate copies of `process_match_dispatch`, each with dead
+    /// clue/positional branches eliminated at compile time.
     pub(crate) fn scan_spelling(
         &self,
         text: &str,
@@ -38,43 +50,82 @@ impl Scanner {
         let mut excl_cursor: usize = 0;
         let mut boundary_cache: HashMap<usize, bool> = HashMap::new();
 
+        // Dispatch macro: routes each AC hit to the monomorphic variant
+        // matching the rule's precomputed class.  Absorption sentinels
+        // (index >= rule count) are filtered before dispatch.
+        macro_rules! dispatch {
+            ($start:expr, $end:expr, $idx:expr) => {
+                match self.rule_classes[$idx] {
+                    CLASS_CLUED => self.process_match_dispatch::<CLASS_CLUED>(
+                        text,
+                        excluded,
+                        &mut excl_cursor,
+                        zh_type,
+                        issues,
+                        cfg,
+                        &mut boundary_cache,
+                        $start,
+                        $end,
+                        $idx,
+                    ),
+                    CLASS_FULL => self.process_match_dispatch::<CLASS_FULL>(
+                        text,
+                        excluded,
+                        &mut excl_cursor,
+                        zh_type,
+                        issues,
+                        cfg,
+                        &mut boundary_cache,
+                        $start,
+                        $end,
+                        $idx,
+                    ),
+                    _ => self.process_match_dispatch::<CLASS_SIMPLE>(
+                        text,
+                        excluded,
+                        &mut excl_cursor,
+                        zh_type,
+                        issues,
+                        cfg,
+                        &mut boundary_cache,
+                        $start,
+                        $end,
+                        $idx,
+                    ),
+                }
+            };
+        }
+
         if let Some(ref cw_ac) = self.spelling_ac_charwise {
             for mat in cw_ac.leftmost_find_iter(text) {
-                self.process_spelling_match(
-                    text,
-                    excluded,
-                    &mut excl_cursor,
-                    zh_type,
-                    issues,
-                    cfg,
-                    &mut boundary_cache,
-                    mat.start(),
-                    mat.end(),
-                    mat.value(),
-                );
+                let idx = mat.value();
+                if idx >= self.spelling_rules.len() {
+                    continue;
+                }
+                dispatch!(mat.start(), mat.end(), idx);
             }
         } else if let Some(ref bw_ac) = self.spelling_ac_bytewise {
             for mat in bw_ac.find_iter(text) {
-                self.process_spelling_match(
-                    text,
-                    excluded,
-                    &mut excl_cursor,
-                    zh_type,
-                    issues,
-                    cfg,
-                    &mut boundary_cache,
-                    mat.start(),
-                    mat.end(),
-                    mat.pattern().as_usize(),
-                );
+                let idx = mat.pattern().as_usize();
+                if idx >= self.spelling_rules.len() {
+                    continue;
+                }
+                dispatch!(mat.start(), mat.end(), idx);
             }
         }
     }
 
-    /// Process a single spelling AC match (shared between charwise/bytewise).
+    /// Monomorphic fast path for a single spelling AC match.
+    ///
+    /// CLASS is a compile-time constant (CLASS_SIMPLE / CLASS_CLUED / CLASS_FULL).
+    /// The compiler monomorphizes three copies, dead-code-eliminating the
+    /// context-clue and positional-clue blocks for simpler rule classes:
+    ///   - CLASS_SIMPLE: skips context-clue window + AC scan + positional check
+    ///   - CLASS_CLUED:  runs context-clue gate, skips positional check
+    ///   - CLASS_FULL:   runs both gates
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    fn process_spelling_match(
+    fn process_match_dispatch<const CLASS: u8>(
         &self,
         text: &str,
         excluded: &[ByteRange],
@@ -87,11 +138,6 @@ impl Scanner {
         end: usize,
         rule_idx: usize,
     ) {
-        // Absorption sentinel: index past real rules means absorber pattern.
-        if rule_idx >= self.spelling_rules.len() {
-            return;
-        }
-
         let rule = &self.spelling_rules[rule_idx];
         let flags = self.rule_filter_flags[rule_idx];
 
@@ -161,30 +207,38 @@ impl Scanner {
             }
         }
 
-        // Context-clue gate: windowed AC scan over bounded local window.
-        if flags & FILTER_HAS_ANY_CLUE != 0 {
-            let (win_start, win_end) = context_byte_window(text, start, end, excluded);
-            let (pos_matches, any_neg) = scan_clues_in_window(
-                self.clue_ac.as_ref(),
-                &text[win_start..win_end],
-                self.rule_pos_clue_ids[rule_idx].as_deref(),
-                self.rule_neg_clue_ids[rule_idx].as_deref(),
-            );
+        // Context-clue gate (dead-code-eliminated for CLASS_SIMPLE).
+        // Outer: const-evaluated (DCE for CLASS_SIMPLE).  Inner: runtime flag.
+        #[allow(clippy::collapsible_if)]
+        if CLASS >= CLASS_CLUED {
+            if flags & FILTER_HAS_ANY_CLUE != 0 {
+                let (win_start, win_end) = context_byte_window(text, start, end, excluded);
+                let (pos_matches, any_neg) = scan_clues_in_window(
+                    self.clue_ac.as_ref(),
+                    &text[win_start..win_end],
+                    self.rule_pos_clue_ids[rule_idx].as_deref(),
+                    self.rule_neg_clue_ids[rule_idx].as_deref(),
+                );
 
-            if flags & FILTER_HAS_POS_CLUES != 0 && pos_matches < MIN_SCAN_CLUE_MATCHES {
-                return;
-            }
+                if flags & FILTER_HAS_POS_CLUES != 0 && pos_matches < MIN_SCAN_CLUE_MATCHES {
+                    return;
+                }
 
-            if flags & FILTER_HAS_NEG_CLUES != 0 && any_neg {
-                return;
+                if flags & FILTER_HAS_NEG_CLUES != 0 && any_neg {
+                    return;
+                }
             }
         }
 
-        // Positional clue gate (AND with context-clue gate when both present).
-        if flags & FILTER_HAS_POSITIONAL != 0 {
-            if let Some(ref pos_clues) = self.rule_positional_clues[rule_idx] {
-                if !check_positional_clues(text, start, end, excluded, pos_clues) {
-                    return;
+        // Positional clue gate (dead-code-eliminated for CLASS_SIMPLE/CLASS_CLUED).
+        // Outer: const-evaluated (DCE for SIMPLE/CLUED).  Inner: runtime flag.
+        #[allow(clippy::collapsible_if)]
+        if CLASS >= CLASS_FULL {
+            if flags & FILTER_HAS_POSITIONAL != 0 {
+                if let Some(ref pos_clues) = self.rule_positional_clues[rule_idx] {
+                    if !check_positional_clues(text, start, end, excluded, pos_clues) {
+                        return;
+                    }
                 }
             }
         }
@@ -561,9 +615,66 @@ mod tests {
         let scanner = make_scanner();
         let n = scanner.spelling_rules.len();
         assert_eq!(scanner.rule_filter_flags.len(), n);
+        assert_eq!(scanner.rule_classes.len(), n);
         assert_eq!(scanner.rule_pos_clue_ids.len(), n);
         assert_eq!(scanner.rule_neg_clue_ids.len(), n);
         assert_eq!(scanner.rule_positional_clues.len(), n);
         assert_eq!(scanner.spelling_suggestions.len(), n);
+    }
+
+    #[test]
+    fn rule_classes_match_filter_flags() {
+        let scanner = make_scanner();
+        for (i, &f) in scanner.rule_filter_flags.iter().enumerate() {
+            let has_clues = f & (FILTER_HAS_POS_CLUES | FILTER_HAS_NEG_CLUES) != 0;
+            let has_positional = f & FILTER_HAS_POSITIONAL != 0;
+            let expected = if has_positional {
+                CLASS_FULL
+            } else if has_clues {
+                CLASS_CLUED
+            } else {
+                CLASS_SIMPLE
+            };
+            assert_eq!(
+                scanner.rule_classes[i], expected,
+                "rule '{}': class mismatch (flags=0x{:02x})",
+                scanner.spelling_rules[i].from, f
+            );
+        }
+    }
+
+    #[test]
+    fn rule_class_distribution() {
+        // Sanity check: majority of rules should be CLASS_SIMPLE (the 79%
+        // from PR #49 analysis).  At least 60% to guard against drift.
+        let scanner = make_scanner();
+        let total = scanner.rule_classes.len();
+        let simple = scanner
+            .rule_classes
+            .iter()
+            .filter(|&&c| c == CLASS_SIMPLE)
+            .count();
+        let clued = scanner
+            .rule_classes
+            .iter()
+            .filter(|&&c| c == CLASS_CLUED)
+            .count();
+        let full = scanner
+            .rule_classes
+            .iter()
+            .filter(|&&c| c == CLASS_FULL)
+            .count();
+        assert_eq!(simple + clued + full, total);
+        assert!(
+            simple * 100 / total >= 60,
+            "expected >= 60% simple rules, got {simple}/{total} ({:.0}%)",
+            simple as f64 / total as f64 * 100.0
+        );
+        eprintln!(
+            "rule class distribution: simple={simple} ({:.0}%), clued={clued} ({:.0}%), full={full} ({:.0}%)",
+            simple as f64 / total as f64 * 100.0,
+            clued as f64 / total as f64 * 100.0,
+            full as f64 / total as f64 * 100.0,
+        );
     }
 }
