@@ -530,10 +530,16 @@ impl Server {
                 );
 
                 // Re-scan after fixes — use post-fix ai_signature, not pre-fix.
-                let rescan_out = self.scanner.scan_for_content_type_with_config(
+                // Remap exclusion zones to post-fix coordinates instead of
+                // rebuilding from scratch (avoids re-parsing markdown/URLs on
+                // the entire document for every fix cycle).
+                let remapped_excl =
+                    crate::fixer::remap_exclusions(&excluded, &fix_result.applied_fixes);
+                let rescan_out = self.scanner.scan_with_prebuilt_excluded_config(
                     &fix_result.text,
-                    content_type,
+                    &remapped_excl,
                     cfg,
+                    content_type,
                 );
                 let ai_signature = rescan_out.ai_signature;
                 let mut remaining_issues = rescan_out.issues;

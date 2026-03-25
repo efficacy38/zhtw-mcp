@@ -308,6 +308,53 @@ pub fn remap_to_post_fix(orig_offset: usize, applied_fixes: &[AppliedFix]) -> us
     result.max(0) as usize
 }
 
+/// Remap exclusion zones from original-text coordinates to post-fix coordinates.
+///
+/// The fixer never applies fixes inside excluded regions, so exclusion zones
+/// remain structurally intact -- only their byte offsets shift due to
+/// earlier replacements having different lengths than the originals.
+///
+/// Uses a merge-style single forward pass over both sorted sequences
+/// (applied_fixes and exclusions), accumulating deltas in O(E + F) time.
+pub fn remap_exclusions(
+    exclusions: &[crate::engine::excluded::ByteRange],
+    applied_fixes: &[AppliedFix],
+) -> Vec<crate::engine::excluded::ByteRange> {
+    use crate::engine::excluded::ByteRange;
+
+    if applied_fixes.is_empty() {
+        return exclusions.to_vec();
+    }
+
+    let mut delta: isize = 0;
+    let mut fix_idx = 0;
+    exclusions
+        .iter()
+        .map(|&ByteRange { start, end }| {
+            // Advance past all fixes whose span ends at or before this
+            // exclusion zone.  The end-of-span check (offset + old_len)
+            // is critical for zero-length insertions (e.g. spacing fixes
+            // with old_len == 0): an insertion at the exclusion boundary
+            // must shift the zone right.
+            while fix_idx < applied_fixes.len() {
+                let fix = &applied_fixes[fix_idx];
+                let fix_end = fix.offset.saturating_add(fix.old_len);
+                if fix_end > start {
+                    break;
+                }
+                delta += fix.replacement.len() as isize - fix.old_len as isize;
+                fix_idx += 1;
+            }
+            let new_start = (start as isize + delta).max(0) as usize;
+            let new_end = (end as isize + delta).max(0) as usize;
+            ByteRange {
+                start: new_start,
+                end: new_end,
+            }
+        })
+        .collect()
+}
+
 /// Remove re-scan issues whose byte range overlaps a region written by the fixer.
 ///
 /// After applying fixes and re-scanning, the fixer may have introduced new
@@ -883,5 +930,98 @@ mod tests {
         let result = apply_fixes(text, &[issue], FixMode::LexicalSafe, &[]);
         assert_eq!(result.text, "這個軟體很好用");
         assert_eq!(result.applied, 1);
+    }
+
+    // --- remap_exclusions tests ---
+
+    use crate::engine::excluded::ByteRange;
+
+    fn br(start: usize, end: usize) -> ByteRange {
+        ByteRange { start, end }
+    }
+
+    #[test]
+    fn remap_exclusions_no_fixes() {
+        let excl = vec![br(10, 20), br(30, 40)];
+        let result = remap_exclusions(&excl, &[]);
+        assert_eq!(result, vec![br(10, 20), br(30, 40)]);
+    }
+
+    #[test]
+    fn remap_exclusions_fix_before_exclusion_grows() {
+        // Fix at offset 5 replaces 2 bytes with 4 bytes (+2 delta).
+        // Exclusion at (10, 20) should shift to (12, 22).
+        let excl = vec![br(10, 20)];
+        let fixes = vec![AppliedFix {
+            offset: 5,
+            old_len: 2,
+            replacement: "abcd".to_string(),
+        }];
+        let result = remap_exclusions(&excl, &fixes);
+        assert_eq!(result, vec![br(12, 22)]);
+    }
+
+    #[test]
+    fn remap_exclusions_fix_before_exclusion_shrinks() {
+        // Fix at offset 2 replaces 4 bytes with 1 byte (-3 delta).
+        // Exclusion at (10, 20) should shift to (7, 17).
+        let excl = vec![br(10, 20)];
+        let fixes = vec![AppliedFix {
+            offset: 2,
+            old_len: 4,
+            replacement: "x".to_string(),
+        }];
+        let result = remap_exclusions(&excl, &fixes);
+        assert_eq!(result, vec![br(7, 17)]);
+    }
+
+    #[test]
+    fn remap_exclusions_fix_after_exclusion() {
+        // Fix at offset 25 is after the exclusion at (10, 20) -- no shift.
+        let excl = vec![br(10, 20)];
+        let fixes = vec![AppliedFix {
+            offset: 25,
+            old_len: 3,
+            replacement: "abcdef".to_string(),
+        }];
+        let result = remap_exclusions(&excl, &fixes);
+        assert_eq!(result, vec![br(10, 20)]);
+    }
+
+    #[test]
+    fn remap_exclusions_multiple_fixes_multiple_zones() {
+        // Fix at 5: 2->4 (+2), fix at 25: 3->1 (-2).
+        // Exclusion (10,20) shifts by +2 -> (12,22).
+        // Exclusion (30,40) shifts by +2-2=0 -> (30,40).
+        let excl = vec![br(10, 20), br(30, 40)];
+        let fixes = vec![
+            AppliedFix {
+                offset: 5,
+                old_len: 2,
+                replacement: "abcd".to_string(),
+            },
+            AppliedFix {
+                offset: 25,
+                old_len: 3,
+                replacement: "x".to_string(),
+            },
+        ];
+        let result = remap_exclusions(&excl, &fixes);
+        assert_eq!(result, vec![br(12, 22), br(30, 40)]);
+    }
+
+    #[test]
+    fn remap_exclusions_zero_length_insertion_at_boundary() {
+        // Spacing fix: zero-length insertion (old_len=0) at offset 10,
+        // which is exactly the exclusion start. The insertion should
+        // shift the exclusion right by the replacement length.
+        let excl = vec![br(10, 20)];
+        let fixes = vec![AppliedFix {
+            offset: 10,
+            old_len: 0,
+            replacement: " ".to_string(),
+        }];
+        let result = remap_exclusions(&excl, &fixes);
+        assert_eq!(result, vec![br(11, 21)]);
     }
 }
