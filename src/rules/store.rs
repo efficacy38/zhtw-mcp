@@ -526,8 +526,10 @@ impl Default for TranslationMemory {
 pub struct TranslationMemoryStore {
     path: PathBuf,
     memory: TranslationMemory,
-    /// Lookup index: `found` term -> indices into `memory.entries`.
-    index: HashMap<String, Vec<usize>>,
+    /// Lookup index: `found` term -> index of the canonical entry in
+    /// `memory.entries`. For duplicate `found` keys (hand-edited files),
+    /// the index always points to the last occurrence.
+    index: HashMap<String, usize>,
 }
 
 impl TranslationMemoryStore {
@@ -575,13 +577,8 @@ impl TranslationMemoryStore {
     pub fn record(&mut self, entry: TmEntry) -> Result<()> {
         let _lock = acquire_lock(&self.path)?;
 
-        // Deduplicate by found only: latest decision wins. Use rposition()
-        // to match should_suppress()'s last()-based read behavior.
-        let existing = self
-            .memory
-            .entries
-            .iter()
-            .rposition(|e| e.found == entry.found);
+        // Deduplicate by found: latest decision wins. O(1) via index.
+        let existing = self.index.get(&entry.found).copied();
 
         // Enforce entry cap (new entries only; updates always allowed).
         if existing.is_none() && self.memory.entries.len() >= TM_MAX_ENTRIES {
@@ -600,7 +597,7 @@ impl TranslationMemoryStore {
             let new_idx = self.memory.entries.len();
             let found_key = entry.found.clone();
             self.memory.entries.push(entry);
-            self.index.entry(found_key).or_default().push(new_idx);
+            self.index.insert(found_key, new_idx);
         }
 
         if let Err(e) = self.flush() {
@@ -608,9 +605,9 @@ impl TranslationMemoryStore {
             if let Some(old) = old_entry {
                 self.memory.entries[existing.unwrap()] = old;
             } else {
-                self.memory.entries.pop();
+                let removed = self.memory.entries.pop().expect("just pushed");
+                self.index.remove(&removed.found);
             }
-            self.index = build_tm_index(&self.memory.entries);
             return Err(e);
         }
         Ok(())
@@ -622,11 +619,7 @@ impl TranslationMemoryStore {
     /// Matches by `found` only. Uses the last index entry (latest decision)
     /// to avoid stale duplicates in hand-edited files poisoning the result.
     pub fn should_suppress(&self, found: &str) -> bool {
-        let Some(indices) = self.index.get(found) else {
-            return false;
-        };
-        // Last entry is the latest decision (record() appends or updates in place).
-        indices.last().is_some_and(|&idx| {
+        self.index.get(found).is_some_and(|&idx| {
             let e = &self.memory.entries[idx];
             e.user_chose == e.found
         })
@@ -672,30 +665,26 @@ impl TranslationMemoryStore {
         let mut added = 0;
         let mut updated = 0;
         for entry in imported.entries {
-            if let Some(pos) = self
-                .memory
-                .entries
-                .iter()
-                .rposition(|e| e.found == entry.found)
-            {
-                // Latest-wins: update existing entry.
+            if let Some(&pos) = self.index.get(&entry.found) {
+                // Latest-wins: update existing entry in place.
                 self.memory.entries[pos] = entry;
                 updated += 1;
             } else {
                 if self.memory.entries.len() >= TM_MAX_ENTRIES {
                     log::warn!(
                         "TM entry cap ({TM_MAX_ENTRIES}) reached during import; \
-                         skipping remaining entries"
+                         skipping new entries (updates still applied)"
                     );
-                    break;
+                    continue;
                 }
+                let new_idx = self.memory.entries.len();
+                self.index.insert(entry.found.clone(), new_idx);
                 self.memory.entries.push(entry);
                 added += 1;
             }
         }
 
         if added > 0 || updated > 0 {
-            self.index = build_tm_index(&self.memory.entries);
             if let Err(e) = self.flush() {
                 self.memory.entries = old_entries;
                 self.index = old_index;
@@ -719,11 +708,13 @@ impl TranslationMemoryStore {
     }
 }
 
-/// Build lookup index from TM entries.
-fn build_tm_index(entries: &[TmEntry]) -> HashMap<String, Vec<usize>> {
-    let mut index: HashMap<String, Vec<usize>> = HashMap::with_capacity(entries.len());
+/// Build lookup index from TM entries. For duplicate `found` keys
+/// (hand-edited files), the last occurrence wins — matching the
+/// 'latest decision wins' semantics.
+fn build_tm_index(entries: &[TmEntry]) -> HashMap<String, usize> {
+    let mut index: HashMap<String, usize> = HashMap::with_capacity(entries.len());
     for (idx, entry) in entries.iter().enumerate() {
-        index.entry(entry.found.clone()).or_default().push(idx);
+        index.insert(entry.found.clone(), idx);
     }
     index
 }
@@ -1632,8 +1623,8 @@ mod tests {
     #[test]
     fn tm_hand_edited_duplicates_record_updates_last() {
         // Simulate a hand-edited TM file with duplicate found entries.
-        // record() should update the last one (rposition), and
-        // should_suppress() should read the last one (last()).
+        // record() should update the last one (via index), and
+        // should_suppress() should read the canonical one.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".zhtw-tm.json");
 
