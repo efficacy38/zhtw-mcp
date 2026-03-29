@@ -14,6 +14,7 @@ zhtw-mcp lint -- < input.txt
 
 # With options
 zhtw-mcp lint file.md --format json --profile strict --max-errors 5
+zhtw-mcp lint file.md --telemetry           # print stderr summary counters
 zhtw-mcp lint file.md --format tabular              # aligned columns
 zhtw-mcp lint docs/ --exclude "vendor/**"
 zhtw-mcp lint -- --content-type markdown < input.md
@@ -40,6 +41,24 @@ Each issue includes a cultural/linguistic annotation and its English anchor term
 ## Scan caching
 
 In lint-only mode (no `--fix`), the CLI automatically caches scan results keyed by file content hash (BLAKE3) and scan parameters. Unchanged files are skipped on subsequent runs. The cache lives at the platform default cache directory (`~/.cache/zhtw-mcp/` on Linux, `~/Library/Caches/zhtw-mcp/` on macOS) with 24-hour TTL and a 2000-entry cap. Caching is disabled when `--fix`, `--verify`, or stdin mode is active.
+
+## Telemetry
+
+Use `--telemetry` with `lint` to print a compact stderr summary after the run:
+
+```bash
+zhtw-mcp lint docs/ --telemetry
+```
+
+This reports processed file count plus total error/warning counts. It does not change stdout formatting or exit-code behavior.
+
+## Judgment cache
+
+LLM-backed disambiguation decisions are also persisted in a separate judgment cache. To clear it:
+
+```bash
+zhtw-mcp cache clear
+```
 
 ## Output formats
 

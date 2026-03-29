@@ -14,7 +14,8 @@ The scanner detects Traditional vs. Simplified Chinese by counting exclusive cha
 6. Variant pass: character variant normalization with exception phrase checking
 7. Overlap resolution: longer match wins, higher severity on tie
 8. Profile filtering (e.g., `臺`/`台` only in `strict`)
-9. Sampling (optional): ambiguous terms escalated to host LLM
+9. Tier 2 local disambiguation: collocations, context clue density, profile priors. Issues scoring >= 0.6 resolve locally, < 0.3 suppressed as likely FP, [0.3, 0.6) forwarded to Tier 3
+10. Tier 3 sampling (optional): gray-zone terms escalated to host LLM, results cached in persistent judgment cache
 
 ## Design decisions
 
@@ -24,7 +25,8 @@ The scanner detects Traditional vs. Simplified Chinese by counting exclusive cha
 - JSON ruleset (`assets/ruleset.json`) embedded via `include_str!`. Runtime overrides in platform config directory.
 - SHA-256 trace IDs for reproducibility. No `uuid` crate dependency.
 - Small release binary (~3 MB on x86-64 Linux, LTO + strip).
-- Sampling (step 9) only activates when running as an MCP server inside an AI assistant. The standalone CLI skips sampling and keeps ambiguous issues at their original severity.
+- Sampling (step 10) only activates when running as an MCP server inside an AI assistant. The standalone CLI runs Tier 2 disambiguation but skips Tier 3 sampling, keeping gray-zone issues at their original severity.
+- Persistent judgment cache (`~/.config/zhtw-mcp/judgment_cache.json`) stores LLM disambiguation results keyed on a 9-field blake3-hashed composite (ruleset_hash, prompt/disambig versions, profile, content type, normalized context, term, candidate set hash, english anchor). 30-day TTL, 10000-entry cap, atomic writes (tempfile + rename), schema-versioned with backup-and-reset. Eliminates repeated LLM calls across sessions.
 - Incremental scan cache (BLAKE3-keyed, 24h TTL, 2000-entry cap) skips re-scanning unchanged files in lint-only CLI mode. Disabled for `--fix`, `--verify`, and stdin. MCP path does not use the cache (stateless by design).
 - Built-in SC→TC converter (`s2t.rs` + `s2t_data.rs`) eliminates the OpenCC runtime dependency for the `convert` subcommand.
 - Anchor calibration (`translate.rs`) annotates ambiguous issues with `anchor_match: Option<bool>` (confirmed/unconfirmed/no-signal) via synonym table and LCP stem matching. Fails open on API error (severity preserved).
@@ -36,6 +38,10 @@ Synthetic corpus fixtures in `tests/corpus/` drive aggregate quality metrics.
 - `ai-generated.json`: zh-TW technical prose with LLM-style filler and zh-CN drift.
 - `native-zh-tw.json`: clean native-style zh-TW technical prose used for false-positive checks.
 - `cn-to-tw-conversion.json`: zh-CN technical prose evaluated after built-in SC->TC conversion.
+- `deterministic.json`: Tier 1 regression corpus (fully solvable via rigid rules, no LLM needed).
+- `ambiguous.json`: polysemous terms for Tier 2/3 disambiguation validation.
+- `editorial.json`: AI filler and hedging language (density detection).
+- `mixed-content.json`: markdown tables, code blocks, CJK-Latin interleaving (structural integrity).
 
 The corpora are synthetic and repeat short seed documents enough times to exceed 50 KiB per corpus during evaluation. The test harness (`tests/corpus-evaluation.rs`) treats each seed as an independent document, weighted by its `repeat` count.
 
@@ -63,6 +69,8 @@ cargo test --test vocabulary-expansion # political nouns, IT terms, context clue
 cargo test --test cli-lint             # CLI: exit codes, formats, fix, SARIF, baseline
 cargo test --test anchor-benchmark -- --ignored  # anchor calibration (requires network)
 cargo test --test fix-tier-benchmark   # fix tier coverage
+cargo test --test regression           # regression corpus (4 datasets)
+cargo test --test evaluate-tier         # tier distribution + LLM avoidance metrics
 cargo test corpus -- --nocapture       # corpus evaluation suite
 cargo clippy                           # must be warning-free
 cargo fmt --check

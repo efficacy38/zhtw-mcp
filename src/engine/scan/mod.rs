@@ -133,6 +133,18 @@ pub enum ContentType {
     Yaml,
 }
 
+impl ContentType {
+    /// Canonical string name matching the MCP/CLI parameter values.
+    pub fn name(self) -> &'static str {
+        match self {
+            ContentType::Plain => "plain",
+            ContentType::Markdown => "markdown",
+            ContentType::MarkdownScanCode => "markdown-scan-code",
+            ContentType::Yaml => "yaml",
+        }
+    }
+}
+
 // Constants
 
 /// Number of characters around a match to examine for context clues.

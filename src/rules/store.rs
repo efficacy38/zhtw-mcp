@@ -315,7 +315,7 @@ pub fn default_overrides_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("overrides.json"))
 }
 
-fn config_dir() -> Option<PathBuf> {
+pub(crate) fn config_dir() -> Option<PathBuf> {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())

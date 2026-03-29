@@ -66,6 +66,17 @@ fn cli_lint_json_format() {
 }
 
 #[test]
+fn cli_lint_telemetry_summary_on_stderr() {
+    let output = run_lint_stdin(&["--telemetry"], "這個軟件很好用");
+    assert!(output.status.success(), "warnings-only should still exit 0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("[telemetry] files=1 total_issues=1 errors=0 warnings=1"),
+        "stderr should include telemetry summary: {stderr}"
+    );
+}
+
+#[test]
 fn cli_lint_profile_strict() {
     // 裏 is a variant only flagged under strict profile
     let output = run_lint_stdin(&["--format", "json", "--profile", "strict"], "裏面");
@@ -205,6 +216,16 @@ fn run_lint_args(args: &[&str]) -> Output {
         .unwrap()
 }
 
+fn run_bin_args(args: &[&str]) -> Output {
+    let bin = binary_path();
+    Command::new(&bin)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn cli_lint_directory_recursive() {
     let dir = tempfile::tempdir().unwrap();
@@ -218,6 +239,20 @@ fn cli_lint_directory_recursive() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
     let arr = parsed.as_array().expect("multi-file JSON is array");
     assert_eq!(arr.len(), 2, "should find 2 files recursively");
+}
+
+#[test]
+fn cli_cache_clear_rejects_trailing_args() {
+    let output = run_bin_args(&["cache", "clear", "unexpected"]);
+    assert!(
+        !output.status.success(),
+        "cache clear with trailing args should fail"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cache clear does not accept additional arguments"),
+        "stderr should explain invalid trailing args: {stderr}"
+    );
 }
 
 #[test]

@@ -597,6 +597,15 @@ pub fn score_issue(issue: &Issue, context_window: &str, cfg: &DisambigConfig) ->
         }
     }
 
+    // Strategy 2b: domain veto for known false-positive contexts.
+    if has_negative_domain_signal(&issue.found, context_window) {
+        return AmbiguityScore {
+            score: 0.0,
+            resolved: None,
+            resolution: Resolution::Suppressed,
+        };
+    }
+
     // Strategy 3: context clue density.
     let clue_score = compute_clue_score(issue, context_window);
 
@@ -656,6 +665,20 @@ fn check_collocation<'a>(from: &str, context: &str) -> Option<&'a str> {
         }
     }
     None
+}
+
+/// Detect obvious non-target-domain usage for highly polysemous terms.
+fn has_negative_domain_signal(from: &str, context: &str) -> bool {
+    match from {
+        // "進程" is only a safe correction in operating-system contexts.
+        // General prose such as "學習的進程" should be suppressed locally.
+        "進程" => [
+            "學習", "成長", "改革", "歷史", "發展", "進展", "過程", "耐心", "毅力",
+        ]
+        .iter()
+        .any(|trigger| context.contains(trigger)),
+        _ => false,
+    }
 }
 
 /// Compute a clue density score from the issue's context_clues.
@@ -737,13 +760,22 @@ pub struct DisambigStats {
 /// Whether an issue is eligible for Tier 2 disambiguation.
 ///
 /// Deterministic issue types (Punctuation, Case, Variant, Grammar, AiStyle)
-/// are resolved at Tier 1 and never enter Tier 2.  Only CrossStrait and
-/// Confusable with english fields or context clues are eligible.
+/// are resolved at Tier 1 and never enter Tier 2. Only genuinely ambiguous
+/// lexical issues should enter Tier 2: multi-suggestion rules, clue-gated
+/// rules, anchor-confirmed issues, or terms with explicit negative-domain
+/// screening.
+fn needs_negative_domain_screening(found: &str) -> bool {
+    matches!(found, "進程")
+}
+
 pub fn is_tier2_eligible(issue: &Issue) -> bool {
     matches!(
         issue.rule_type,
         IssueType::CrossStrait | IssueType::Confusable
-    ) && (issue.english.is_some() || issue.context_clues.is_some())
+    ) && (issue.anchor_match == Some(true)
+        || issue.suggestions.len() > 1
+        || issue.context_clues.as_ref().is_some_and(|c| !c.is_empty())
+        || needs_negative_domain_screening(&issue.found))
 }
 
 /// Run Tier 2 disambiguation on a batch of issues.
@@ -1214,6 +1246,15 @@ mod tests {
     }
 
     #[test]
+    fn progress_context_suppresses_jincheng_false_positive() {
+        let issue = make_issue("進程", vec!["行程"], Some("process"));
+        let cfg = DisambigConfig::default();
+        let result = score_issue(&issue, "學習的進程需要耐心和毅力", &cfg);
+        assert_eq!(result.resolution, Resolution::Suppressed);
+        assert_eq!(result.score, 0.0);
+    }
+
+    #[test]
     fn batch_disambiguate_stats() {
         let mut issues = vec![
             {
@@ -1243,9 +1284,14 @@ mod tests {
 
     #[test]
     fn is_tier2_eligible_filters_correctly() {
-        // CrossStrait with english → eligible
+        // Plain single-suggestion lexical issue → not eligible
         let i1 = make_issue("軟件", vec!["軟體"], Some("software"));
-        assert!(is_tier2_eligible(&i1));
+        assert!(!is_tier2_eligible(&i1));
+
+        // Anchor-confirmed issue → eligible
+        let mut i1_anchor = make_issue("軟件", vec!["軟體"], Some("software"));
+        i1_anchor.anchor_match = Some(true);
+        assert!(is_tier2_eligible(&i1_anchor));
 
         // Punctuation → not eligible
         let i2 = Issue::new(
@@ -1268,6 +1314,10 @@ mod tests {
             Severity::Warning,
         );
         assert!(!is_tier2_eligible(&i3));
+
+        // Negative-domain-screened ambiguous term → eligible
+        let i4 = make_issue("進程", vec!["行程"], Some("process"));
+        assert!(is_tier2_eligible(&i4));
     }
 
     #[test]

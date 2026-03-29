@@ -139,6 +139,8 @@ Replace `/path/to/zhtw-mcp` with the actual binary path (e.g., `target/release/z
 zhtw-mcp lint README.md                 # lint a file
 zhtw-mcp lint file.md --fix             # auto-fix in place
 zhtw-mcp lint file.md --fix --dry-run   # preview fixes
+zhtw-mcp lint file.md --telemetry       # print stderr summary counters
+zhtw-mcp cache clear                    # clear persistent judgment cache
 ```
 
 See [docs/cli.md](docs/cli.md) for the full CLI reference and [docs/mcp.md](docs/mcp.md) for MCP tool/resource/prompt details.
@@ -156,6 +158,7 @@ When running as an MCP server, you interact through natural language. The assist
 | UI strings | *"Lint this UI string, skip grammar"* | `zhtw({ "text": "...", "relaxed": true })` | Disables colon/dunhao/grammar enforcement; uses en-dash for ranges |
 | AI writing review | *"Review this for AI writing artifacts"* | `zhtw({ "text": "...", "detect_ai": true })` | Flags filler phrases, semantic safety words, copula/passive overuse |
 | Markdown-aware | *"Lint this markdown, skip code blocks"* | `zhtw({ "text": "...", "content_type": "markdown" })` | Fenced code, inline code, and HTML blocks excluded from scanning |
+| Cost telemetry | *"Lint this and include telemetry"* | `zhtw({ "text": "...", "include_telemetry": true })` | Returns estimated token/caching metrics for the call |
 
 Each `zhtw` call is stateless -- parameters like `profile` are per-call, not session state. Omitting `profile` defaults to `base`.
 

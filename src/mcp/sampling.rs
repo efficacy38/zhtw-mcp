@@ -124,6 +124,10 @@ pub(crate) struct SamplingBridge<'a> {
     used: usize,
     /// Messages consumed from the channel that don't belong to our sampling flow.
     spillover: Vec<StdinMsg>,
+    /// Estimated prompt tokens sent across all sampling calls (bytes/3 heuristic).
+    pub(crate) est_prompt_tokens: u64,
+    /// Estimated completion tokens received across all sampling calls.
+    pub(crate) est_completion_tokens: u64,
 }
 
 impl<'a> SamplingBridge<'a> {
@@ -140,6 +144,8 @@ impl<'a> SamplingBridge<'a> {
             budget,
             used: 0,
             spillover: Vec::new(),
+            est_prompt_tokens: 0,
+            est_completion_tokens: 0,
         }
     }
 
@@ -228,8 +234,17 @@ impl<'a> SamplingBridge<'a> {
         writeln!(self.writer, "{json}").ok()?;
         self.writer.flush().ok()?;
 
+        // Estimate prompt tokens from question byte length (bytes/3 heuristic:
+        // CJK chars are ~3 bytes and ~1 token each, ASCII is ~1 byte and ~0.3 tokens).
+        let est_prompt = (question.len() as u64).saturating_add(2) / 3;
+        self.est_prompt_tokens = self.est_prompt_tokens.saturating_add(est_prompt);
+
         // Wait for response, stashing non-matching messages.
         let text = self.recv_response_text(&id)?;
+
+        // Estimate completion tokens from response length.
+        let est_completion = (text.len() as u64).saturating_add(2) / 3;
+        self.est_completion_tokens = self.est_completion_tokens.saturating_add(est_completion);
 
         // Match response against issue suggestions.
         let suggested_term = find_matching_suggestion(&text, &issue.suggestions);
@@ -314,7 +329,15 @@ impl<'a> SamplingBridge<'a> {
         writeln!(self.writer, "{json}").ok()?;
         self.writer.flush().ok()?;
 
+        // Estimate prompt tokens (bytes/3 heuristic, same as sample_disambiguation).
+        let est_prompt = (question.len() as u64).saturating_add(2) / 3;
+        self.est_prompt_tokens = self.est_prompt_tokens.saturating_add(est_prompt);
+
         let text = self.recv_response_text(&id)?;
+
+        // Estimate completion tokens from response length.
+        let est_completion = (text.len() as u64).saturating_add(2) / 3;
+        self.est_completion_tokens = self.est_completion_tokens.saturating_add(est_completion);
 
         // Parse the JSON response. Try to extract a JSON object from the text,
         // tolerating leading/trailing whitespace or markdown fences.
@@ -552,6 +575,37 @@ pub(crate) fn is_sampling_eligible(issue: &Issue) -> bool {
     issue.english.is_some() && (issue.suggestions.len() > 1 || issue.context_clues.is_some())
 }
 
+/// Context for judgment cache integration during sampling.
+pub(crate) struct SamplingCacheCtx<'a> {
+    pub cache: &'a mut crate::rules::judgment_cache::JudgmentCache,
+    pub ruleset_hash: &'a str,
+    pub profile: &'a str,
+    pub content_type: &'a str,
+}
+
+/// Build a JudgmentKey from the cache context, context window, and issue.
+fn build_judgment_key(
+    ctx: &SamplingCacheCtx<'_>,
+    context_window: &str,
+    issue: &Issue,
+) -> crate::rules::judgment_cache::JudgmentKey {
+    use crate::rules::judgment_cache::{
+        hash_candidate_set, normalize_context_for_cache, JudgmentKey, JUDGMENT_PROMPT_VERSION,
+        LOCAL_DISAMBIG_VERSION,
+    };
+    JudgmentKey {
+        ruleset_hash: ctx.ruleset_hash.to_string(),
+        judgment_prompt_version: JUDGMENT_PROMPT_VERSION,
+        local_disambig_version: LOCAL_DISAMBIG_VERSION,
+        profile: ctx.profile.to_string(),
+        content_type: ctx.content_type.to_string(),
+        normalized_context: normalize_context_for_cache(context_window),
+        ambiguous_term: issue.found.clone(),
+        candidate_set_hash: hash_candidate_set(&issue.suggestions),
+        english_anchor: issue.english.clone().unwrap_or_default(),
+    }
+}
+
 /// Sampling budget usage statistics returned by `refine_issues_with_sampling`.
 ///
 /// Included in the tool response JSON so clients can observe budget exhaustion.
@@ -576,6 +630,7 @@ pub(crate) fn refine_issues_with_sampling(
     issues: &mut [Issue],
     bridge: &mut SamplingBridge<'_>,
     text: &str,
+    mut cache_ctx: Option<&mut SamplingCacheCtx<'_>>,
 ) -> SamplingStats {
     let used_before = bridge.used();
 
@@ -614,7 +669,7 @@ pub(crate) fn refine_issues_with_sampling(
 
     // Semantic cache: avoid redundant LLM calls for the same term in
     // similar contexts within a single invocation.
-    let mut cache = DisambiguationCache::new();
+    let mut invocation_cache = DisambiguationCache::new();
     let mut skipped = uncollected_skipped;
 
     for (idx, context_window) in &eligible {
@@ -624,8 +679,26 @@ pub(crate) fn refine_issues_with_sampling(
         }
         let issue = &mut issues[*idx];
 
-        // Check cache first: exact match on (found, english, normalized_context).
-        if let Some(cached) = cache.get(&issue.found, issue.english.as_deref(), context_window) {
+        // Check persistent judgment cache first (51.4).
+        if let Some(ref mut ctx) = cache_ctx {
+            let jkey = build_judgment_key(ctx, context_window, issue);
+            if let Some(cached) = ctx.cache.get(&jkey) {
+                let matched = cached.chosen_replacement.clone();
+                // Propagate cached explanation so explain mode can surface it.
+                let detail = if cached.explanation.is_empty() {
+                    "judgment-cache".to_string()
+                } else {
+                    format!("judgment-cache: {}", cached.explanation)
+                };
+                apply_disambiguation(issue, &matched, &detail);
+                continue;
+            }
+        }
+
+        // Check invocation-level cache: exact match on (found, english, normalized_context).
+        if let Some(cached) =
+            invocation_cache.get(&issue.found, issue.english.as_deref(), context_window)
+        {
             let cached = cached.clone();
             apply_disambiguation(issue, &cached.matched_term, "cached");
             continue;
@@ -644,7 +717,21 @@ pub(crate) fn refine_issues_with_sampling(
                     format!("response: '{truncated}'")
                 };
                 apply_disambiguation(issue, &matched, &detail);
-                cache.insert(
+
+                // Store in persistent judgment cache.
+                if let Some(ref mut ctx) = cache_ctx {
+                    let jkey = build_judgment_key(ctx, context_window, issue);
+                    let confidence = if matched.is_some() { 0.9 } else { 0.1 };
+                    let jvalue = ctx.cache.make_value(
+                        matched.clone(),
+                        confidence,
+                        result.text.clone(),
+                        "mcp-host".to_string(),
+                    );
+                    ctx.cache.insert(&jkey, jvalue);
+                }
+
+                invocation_cache.insert(
                     &issue.found,
                     issue.english.as_deref(),
                     context_window,
@@ -1063,7 +1150,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_secs(5), 5);
 
-        refine_issues_with_sampling(&mut issues, &mut bridge, "這個算法支持並行計算");
+        refine_issues_with_sampling(&mut issues, &mut bridge, "這個算法支持並行計算", None);
 
         assert_eq!(issues[0].suggestions[0], "平行"); // promoted to front
         assert!(issues[0]
@@ -1243,7 +1330,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 5);
 
-        refine_issues_with_sampling(&mut issues, &mut bridge, "context");
+        refine_issues_with_sampling(&mut issues, &mut bridge, "context", None);
 
         // Severity must be unchanged; only the context annotation is added.
         assert_eq!(issues[0].severity, original_severity);
@@ -1477,7 +1564,7 @@ mod tests {
         // Budget = 2, short timeout so calls fail fast.
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 2);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, text);
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, text, None);
 
         // 2 calls made (both timeout), 5 eligible issues skipped.
         assert_eq!(stats.used, 2, "should have used 2 budget slots");
@@ -1506,7 +1593,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 5);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "軟件");
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "軟件", None);
 
         assert_eq!(stats.used, 0);
         assert_eq!(stats.skipped, 0);
@@ -1526,7 +1613,7 @@ mod tests {
         // Budget = 0: all eligible issues are skipped immediately.
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 0);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "ctx");
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "ctx", None);
 
         assert_eq!(stats.used, 0);
         assert_eq!(stats.skipped, 3, "all 3 eligible issues should be skipped");

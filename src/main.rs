@@ -85,6 +85,7 @@ fn main() -> Result<()> {
     let mut diff_from: Option<String> = None;
     #[cfg(feature = "translate")]
     let mut verify = false;
+    let mut telemetry = false;
     let mut setup_host: Option<String> = None;
     let mut pack_cmd: Option<String> = None;
     let mut pack_arg: Option<String> = None;
@@ -243,6 +244,9 @@ fn main() -> Result<()> {
                         "--verify" => {
                             anyhow::bail!("--verify requires the 'translate' feature (rebuild without --no-default-features)");
                         }
+                        "--telemetry" => {
+                            telemetry = true;
+                        }
                         _ => {
                             lint_files.push(args[i].clone());
                         }
@@ -374,6 +378,31 @@ fn main() -> Result<()> {
                     _ => {}      // let run_pack_cmd report the error
                 }
                 pack_cmd = Some(subcmd);
+            }
+            "cache" => {
+                i += 1;
+                let subcmd = args
+                    .get(i)
+                    .context("cache requires a subcommand (clear)")?
+                    .clone();
+                match subcmd.as_str() {
+                    "clear" => {
+                        if i + 1 < args.len() {
+                            anyhow::bail!(
+                                "cache clear does not accept additional arguments: {}",
+                                args[i + 1]
+                            );
+                        }
+                        let mut cache =
+                            zhtw_mcp::rules::judgment_cache::JudgmentCache::open_default();
+                        let count = cache.len();
+                        cache.clear();
+                        cache.flush();
+                        eprintln!("judgment cache cleared ({count} entries removed)");
+                        return Ok(());
+                    }
+                    other => anyhow::bail!("unknown cache subcommand: {other} (expected 'clear')"),
+                }
             }
             "--suppressions" => {
                 i += 1;
@@ -511,6 +540,7 @@ fn main() -> Result<()> {
             detect_ai,
             ai_threshold_multiplier,
             tm_path: Some(eff_tm_path),
+            telemetry,
         });
     }
 
@@ -700,6 +730,7 @@ struct LintBatchParams<'a> {
     detect_ai: bool,
     ai_threshold_multiplier: f32,
     tm_path: Option<PathBuf>,
+    telemetry: bool,
 }
 
 fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
@@ -955,7 +986,15 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             output.detected_script.name()
         };
         let mut ai_signature = output.ai_signature;
-        let issues = output.issues;
+        let mut issues = output.issues;
+
+        // Tier 2: local disambiguation.
+        let disambig_cfg = zhtw_mcp::engine::disambig::DisambigConfig {
+            profile,
+            ..Default::default()
+        };
+        let _disambig_stats =
+            zhtw_mcp::engine::disambig::disambiguate_batch(&mut issues, &text, &disambig_cfg);
 
         let scan = |input: &str| -> zhtw_mcp::engine::scan::ScanOutput {
             scanner.scan_for_content_type_with_config(input, content_type, cfg)
@@ -1508,6 +1547,17 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
         if let Ok(mut c) = cache_mtx.lock() {
             c.flush();
         }
+    }
+
+    // Print telemetry summary to stderr when --telemetry is set.
+    if params.telemetry {
+        eprintln!(
+            "[telemetry] files={} total_issues={} errors={} warnings={}",
+            resolved.len(),
+            total_errors + total_warnings,
+            total_errors,
+            total_warnings,
+        );
     }
 
     // Exit 1 if total error-severity or warning-severity issues exceed thresholds.

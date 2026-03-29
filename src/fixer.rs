@@ -21,7 +21,7 @@
 #[cfg(test)]
 use crate::engine::scan::surrounding_window;
 use crate::engine::segment::Segmenter;
-use crate::rules::ruleset::{Issue, IssueType};
+use crate::rules::ruleset::{Issue, IssueType, Tier2Outcome};
 
 /// Fix mode controlling which issue types are eligible for automatic correction.
 ///
@@ -194,6 +194,14 @@ pub fn apply_fixes_with_context(
 
         // Orthographic tier: skip all lexical issues.
         if mode == FixMode::Orthographic && !orthographic {
+            skipped += 1;
+            continue;
+        }
+
+        // Tier 2 can suppress lexical issues as likely false positives.
+        // Respect that suppression during auto-fix so we do not rewrite
+        // general prose like "學習的進程" into OS terminology.
+        if !orthographic && issue.tier2_outcome == Tier2Outcome::Suppressed {
             skipped += 1;
             continue;
         }
@@ -559,6 +567,18 @@ mod tests {
         issue.anchor_match = Some(false);
         let result = apply_fixes(text, &[issue], FixMode::LexicalContextual, &[]);
         assert_eq!(result.text, text); // unchanged -- anchor rejected, no clues
+        assert_eq!(result.skipped, 1);
+    }
+
+    #[test]
+    fn lexical_contextual_skips_tier2_suppressed_issue() {
+        let text = "學習的進程需要耐心和毅力";
+        let offset = text.find("進程").unwrap();
+        let mut issue = make_issue(offset, "進程", vec!["行程"]);
+        issue.tier2_outcome = Tier2Outcome::Suppressed;
+        issue.severity = Severity::Info;
+        let result = apply_fixes(text, &[issue], FixMode::LexicalContextual, &[]);
+        assert_eq!(result.text, text);
         assert_eq!(result.skipped, 1);
     }
 

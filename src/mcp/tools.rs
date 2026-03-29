@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use super::prompts;
 use super::resources;
 use super::sampling::{refine_issues_with_sampling, SamplingBridge, SamplingStats};
+use super::telemetry::{TelemetryMetrics, TokenTelemetry};
 use super::types::{
     CallToolParams, CallToolResult, ClientCapabilities, InitializeParams, InitializeResult,
     JsonRpcRequest, JsonRpcResponse, PromptCapability, PromptGetParams, ResourceCapability,
@@ -42,6 +43,8 @@ pub struct Server {
     /// Translation memory: persistent correction tracking.
     tm_store: Option<TranslationMemoryStore>,
     ruleset_hash: String,
+    /// Span-level judgment cache for persistent LLM disambiguation results (51.4).
+    judgment_cache: crate::rules::judgment_cache::JudgmentCache,
     /// Parsed client capabilities from the initialize handshake.
     client_capabilities: ClientCapabilities,
     /// Whether the client has completed the initialize handshake.
@@ -66,12 +69,15 @@ impl Server {
         let (scanner, ruleset_hash) =
             Self::build_scanner(&base_ruleset, &store, &pack_store, &active_packs)?;
 
+        let judgment_cache = crate::rules::judgment_cache::JudgmentCache::open_default();
+
         Ok(Self {
             scanner,
             s2t: S2TConverter::new(),
             suppression_store,
             tm_store,
             ruleset_hash,
+            judgment_cache,
             client_capabilities: ClientCapabilities::default(),
             initialized: false,
             shutdown_requested: false,
@@ -117,6 +123,8 @@ impl Server {
         // exit is always honored regardless of lifecycle state.
         if req.method == "exit" {
             log::info!("exit notification, terminating");
+            // Flush judgment cache before exit (process::exit skips Drop).
+            self.judgment_cache.flush();
             // MCP spec: unconditional process exit.
             // Exit code 0 if shutdown was requested first, 1 otherwise.
             let code = if self.shutdown_requested { 0 } else { 1 };
@@ -309,11 +317,15 @@ impl Server {
 
     #[allow(clippy::result_large_err)]
     fn tool_check(
-        &self,
+        &mut self,
         args: &Value,
         mut bridge: Option<&mut SamplingBridge<'_>>,
         id: Option<super::types::RequestId>,
     ) -> Result<CallToolResult, JsonRpcResponse> {
+        // Snapshot cache counters at start for per-request telemetry.
+        let cache_hits_before = self.judgment_cache.hits;
+        let cache_misses_before = self.judgment_cache.misses;
+
         let text = require_str_validated(args, "text", &id)?;
 
         if text.len() > Self::MAX_TEXT_BYTES {
@@ -362,6 +374,20 @@ impl Server {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let include_telemetry = args
+            .get("include_telemetry")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if include_telemetry && output_mode == OutputMode::Tabular {
+            return Err(param_error(
+                &id,
+                "include_telemetry",
+                "true",
+                &["false", "or use output=full|compact|summary"],
+            ));
+        }
+
         // Build effective config: profile base + capability flags.
         let mut cfg = profile.config();
         if relaxed {
@@ -404,6 +430,7 @@ impl Server {
                 };
                 let ai_signature = output.ai_signature;
                 let mut issues = output.issues;
+                let scanner_hit_count = issues.len();
                 if let Some(st) = stance {
                     filter_by_stance(&mut issues, st);
                 }
@@ -425,13 +452,39 @@ impl Server {
 
                 // Tier 3: LLM sampling for gray-zone issues only.
                 let sampling_stats = if let Some(b) = bridge.as_mut() {
-                    refine_issues_with_sampling(&mut issues, b, text)
+                    let mut cache_ctx = super::sampling::SamplingCacheCtx {
+                        cache: &mut self.judgment_cache,
+                        ruleset_hash: &self.ruleset_hash,
+                        profile: profile.name(),
+                        content_type: content_type.name(),
+                    };
+                    refine_issues_with_sampling(&mut issues, b, text, Some(&mut cache_ctx))
                 } else {
                     SamplingStats::default()
                 };
                 self.apply_suppressions(&mut issues);
                 let tm_suppressed = self.apply_tm(&mut issues);
                 apply_ignore_set(&mut issues, &ignore_set);
+
+                // Build telemetry if requested.
+                let telemetry = if include_telemetry {
+                    Some(build_telemetry(
+                        text,
+                        scanner_hit_count,
+                        &disambig_stats,
+                        &sampling_stats,
+                        bridge.as_ref(),
+                        0,
+                        (
+                            self.judgment_cache.hits.saturating_sub(cache_hits_before),
+                            self.judgment_cache
+                                .misses
+                                .saturating_sub(cache_misses_before),
+                        ),
+                    ))
+                } else {
+                    None
+                };
 
                 let trace =
                     Trace::new("zhtw", &self.ruleset_hash, text).with_issue_count(issues.len());
@@ -459,6 +512,7 @@ impl Server {
                     tm_suppressed,
                     sampling_stats,
                     disambig_stats,
+                    telemetry,
                 })
             }
 
@@ -477,6 +531,7 @@ impl Server {
                     scan_out.detected_script.name()
                 };
                 let mut issues = scan_out.issues;
+                let scanner_hit_count = issues.len();
                 if let Some(st) = stance {
                     filter_by_stance(&mut issues, st);
                 }
@@ -498,7 +553,13 @@ impl Server {
 
                 // Tier 3: LLM sampling for gray-zone issues only.
                 let sampling_stats = if let Some(b) = bridge.as_mut() {
-                    refine_issues_with_sampling(&mut issues, b, text)
+                    let mut cache_ctx = super::sampling::SamplingCacheCtx {
+                        cache: &mut self.judgment_cache,
+                        ruleset_hash: &self.ruleset_hash,
+                        profile: profile.name(),
+                        content_type: content_type.name(),
+                    };
+                    refine_issues_with_sampling(&mut issues, b, text, Some(&mut cache_ctx))
                 } else {
                     SamplingStats::default()
                 };
@@ -613,6 +674,26 @@ impl Server {
                 // reflects the true final state, not a pre-fix snapshot.
                 let tm_suppressed = self.apply_tm(&mut remaining_issues);
 
+                // Build telemetry if requested.
+                let telemetry = if include_telemetry {
+                    Some(build_telemetry(
+                        text,
+                        scanner_hit_count,
+                        &disambig_stats,
+                        &sampling_stats,
+                        bridge.as_ref(),
+                        fix_result.applied,
+                        (
+                            self.judgment_cache.hits.saturating_sub(cache_hits_before),
+                            self.judgment_cache
+                                .misses
+                                .saturating_sub(cache_misses_before),
+                        ),
+                    ))
+                } else {
+                    None
+                };
+
                 let trace = Trace::new("zhtw", &self.ruleset_hash, text)
                     .with_issue_count(remaining_issues.len())
                     .with_output(&fix_result.text);
@@ -640,6 +721,7 @@ impl Server {
                     tm_suppressed,
                     sampling_stats,
                     disambig_stats,
+                    telemetry,
                 })
             }
         })
@@ -792,6 +874,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "output",
             "detect_ai",
             "ai_threshold",
+            "include_telemetry",
         ]
     }
     #[cfg(not(feature = "translate"))]
@@ -811,6 +894,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "output",
             "detect_ai",
             "ai_threshold",
+            "include_telemetry",
         ]
     }
 }
@@ -1404,6 +1488,8 @@ struct FullOutput<'a> {
     verify: Option<VerifyStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    telemetry: Option<&'a TelemetryMetrics>,
 }
 
 /// Compact tool response (serialized directly, no intermediate Value).
@@ -1428,6 +1514,8 @@ struct CompactOutput<'a> {
     verify: Option<VerifyStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    telemetry: Option<&'a TelemetryMetrics>,
 }
 
 /// Summary-only output: issue counts + AI signature, no individual issues or text.
@@ -1440,6 +1528,8 @@ struct SummaryOutput<'a> {
     detected_script: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    telemetry: Option<&'a TelemetryMetrics>,
 }
 
 /// Count issues by severity.
@@ -1500,6 +1590,42 @@ struct CheckOutputParams<'a> {
     sampling_stats: SamplingStats,
     /// Tier 2 disambiguation statistics.
     disambig_stats: DisambigStats,
+    /// Token telemetry metrics (only when include_telemetry is true).
+    telemetry: Option<TelemetryMetrics>,
+}
+
+/// Build telemetry metrics from accumulated counters.
+/// `cache_counts` is (hits, misses) from the judgment cache.
+fn build_telemetry(
+    text: &str,
+    scanner_hit_count: usize,
+    disambig_stats: &DisambigStats,
+    sampling_stats: &SamplingStats,
+    bridge: Option<&&mut SamplingBridge<'_>>,
+    applied_fixes: usize,
+    cache_counts: (u64, u64),
+) -> TelemetryMetrics {
+    let (est_prompt_tokens, est_completion_tokens) = bridge
+        .map(|b| (b.est_prompt_tokens, b.est_completion_tokens))
+        .unwrap_or((0, 0));
+    // ambiguous_terms: all terms that entered Tier 2 evaluation
+    // (resolved + suppressed + gray_zone), not just those forwarded to Tier 3.
+    let ambiguous_terms = (disambig_stats.tier2_resolved
+        + disambig_stats.suppressed
+        + disambig_stats.gray_zone) as u64;
+    let t = TokenTelemetry {
+        input_chars: text.chars().count() as u64,
+        rule_hits: scanner_hit_count as u64,
+        ambiguous_terms,
+        tier2_resolved: disambig_stats.tier2_resolved as u64,
+        llm_round_trips: sampling_stats.used as u64,
+        final_fixes: applied_fixes as u64,
+        prompt_tokens: est_prompt_tokens,
+        completion_tokens: est_completion_tokens,
+        cache_hits: cache_counts.0,
+        cache_misses: cache_counts.1,
+    };
+    t.derive_metrics()
 }
 
 /// Build the unified zhtw JSON response and wrap it in a CallToolResult.
@@ -1584,6 +1710,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 #[cfg(feature = "translate")]
                 verify,
                 ai_signature: params.ai_signature,
+                telemetry: params.telemetry.as_ref(),
             };
             serialize_output(&output)
         }
@@ -1607,6 +1734,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 #[cfg(feature = "translate")]
                 verify,
                 ai_signature: params.ai_signature,
+                telemetry: params.telemetry.as_ref(),
             };
             serialize_output(&output)
         }
@@ -1631,6 +1759,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 profile: params.profile.name(),
                 detected_script: params.detected_script,
                 ai_signature: params.ai_signature,
+                telemetry: params.telemetry.as_ref(),
             };
             serialize_output(&output)
         }
@@ -2101,6 +2230,10 @@ fn tool_definitions() -> Vec<ToolDef> {
                 "type": "string",
                 "enum": ["low", "medium", "high"],
                 "description": "AI detection sensitivity: 'low' (sensitive, catches more), 'medium' (balanced), 'high' (conservative). Only effective with detect_ai=true"
+            }));
+            props.insert("include_telemetry".into(), json!({
+                "type": "boolean",
+                "description": "Include per-request token telemetry metrics in the response (LLM cost accounting)"
             }));
             json!({
                 "type": "object",

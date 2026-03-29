@@ -19,6 +19,7 @@ Unified lint / fix / gate for zh-TW text.
 | `ignore_terms` | array of strings | Terms to downgrade to Info for this call |
 | `explain` | boolean | Attach cultural/linguistic annotations |
 | `output` | `"full"` / `"compact"` / `"tabular"` | Output verbosity |
+| `include_telemetry` | boolean | Include estimated token, cache, and Tier 2 resolution metrics in JSON responses (`full`, `compact`, `summary`) |
 
 Lint only (default):
 
@@ -43,6 +44,14 @@ Per-call suppression:
 ```
 
 Matching issues are downgraded to Info severity for this call only.
+
+Telemetry-enabled call:
+
+```json
+{"text": "這個軟件很好用", "include_telemetry": true}
+```
+
+When enabled, the response includes a `telemetry` object with estimated prompt/completion tokens, cache hit/miss counts, Tier 2 local resolutions, and raw counters for the call. `tabular` output does not support telemetry because it is plain text rather than structured JSON.
 
 ## Resources
 

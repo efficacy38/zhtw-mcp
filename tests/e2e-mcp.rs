@@ -150,6 +150,7 @@ fn e2e_initialize_and_tools_list() {
     assert!(props.get("profile").is_some());
     assert!(props.get("content_type").is_some());
     assert!(props.get("political_stance").is_some());
+    assert!(props.get("include_telemetry").is_some());
 
     // 4. zhtw lint-only (fix_mode absent = none) — detect 軟件
     let resp = send_recv(
@@ -701,6 +702,259 @@ fn e2e_initialize_and_tools_list() {
     let status = child.wait().unwrap();
     assert!(status.success());
     // tmp_dir auto-cleaned on drop
+}
+
+#[test]
+fn e2e_include_telemetry_returns_metrics() {
+    let bin = binary_path();
+    if !bin.exists() {
+        panic!("binary not found at {:?}; run `cargo build` first", bin);
+    }
+
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let overrides_path = tmp_dir.path().join("overrides.json");
+    let suppressions_path = tmp_dir.path().join("suppressions.json");
+
+    let mut child = Command::new(&bin)
+        .args([
+            "--overrides",
+            overrides_path.to_str().unwrap(),
+            "--suppressions",
+            suppressions_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn zhtw-mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    let _ = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "0.1" }
+            }
+        }),
+    );
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 2,
+            "params": {
+                "name": "zhtw",
+                "arguments": {
+                    "text": "這個軟件很好用",
+                    "include_telemetry": true
+                }
+            }
+        }),
+    );
+    assert_eq!(resp["id"], 2);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let output: Value = serde_json::from_str(content_text).unwrap();
+    let telemetry = &output["telemetry"];
+    assert!(
+        telemetry.is_object(),
+        "telemetry should be present when requested"
+    );
+    assert_eq!(telemetry["raw"]["input_chars"].as_u64(), Some(7));
+    assert!(telemetry["raw"]["rule_hits"].as_u64().unwrap() >= 1);
+    assert!(telemetry["cache_hit_count"].is_u64());
+    assert!(telemetry["cache_miss_count"].is_u64());
+
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "exit"
+        }),
+    );
+    let _ = child.wait().unwrap();
+}
+
+#[test]
+fn e2e_include_telemetry_summary_output_returns_metrics() {
+    let bin = binary_path();
+    if !bin.exists() {
+        panic!("binary not found at {:?}; run `cargo build` first", bin);
+    }
+
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let overrides_path = tmp_dir.path().join("overrides.json");
+    let suppressions_path = tmp_dir.path().join("suppressions.json");
+
+    let mut child = Command::new(&bin)
+        .args([
+            "--overrides",
+            overrides_path.to_str().unwrap(),
+            "--suppressions",
+            suppressions_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn zhtw-mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    let _ = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "0.1" }
+            }
+        }),
+    );
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 2,
+            "params": {
+                "name": "zhtw",
+                "arguments": {
+                    "text": "這個軟件很好用",
+                    "output": "summary",
+                    "include_telemetry": true
+                }
+            }
+        }),
+    );
+    assert_eq!(resp["id"], 2);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let output: Value = serde_json::from_str(content_text).unwrap();
+    assert!(
+        output["issues"].is_null(),
+        "summary output should omit issue list"
+    );
+    assert!(output["telemetry"].is_object());
+
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "exit"
+        }),
+    );
+    let _ = child.wait().unwrap();
+}
+
+#[test]
+fn e2e_include_telemetry_rejected_for_tabular_output() {
+    let bin = binary_path();
+    if !bin.exists() {
+        panic!("binary not found at {:?}; run `cargo build` first", bin);
+    }
+
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let overrides_path = tmp_dir.path().join("overrides.json");
+    let suppressions_path = tmp_dir.path().join("suppressions.json");
+
+    let mut child = Command::new(&bin)
+        .args([
+            "--overrides",
+            overrides_path.to_str().unwrap(),
+            "--suppressions",
+            suppressions_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn zhtw-mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    let _ = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "0.1" }
+            }
+        }),
+    );
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 2,
+            "params": {
+                "name": "zhtw",
+                "arguments": {
+                    "text": "這個軟件很好用",
+                    "output": "tabular",
+                    "include_telemetry": true
+                }
+            }
+        }),
+    );
+    assert_eq!(resp["id"], 2);
+    let content_text = resp["error"]["message"].as_str().unwrap();
+    assert!(content_text.contains("include_telemetry"));
+
+    send_notification(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "exit"
+        }),
+    );
+    let _ = child.wait().unwrap();
 }
 
 /// Spawn an initialized MCP child for malformed protocol tests.
