@@ -246,6 +246,22 @@ impl PoliticalStance {
     }
 }
 
+/// Tier 2 disambiguation outcome stored on each Issue.
+/// Used by Tier 3 (sampling) to determine eligibility without
+/// fragile context-string parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tier2Outcome {
+    /// Not processed by Tier 2 (deterministic types, no english/clues).
+    #[default]
+    NotEligible,
+    /// Resolved locally by Tier 2 (hard anchor, collocation, clue, prior).
+    Resolved,
+    /// Suppressed by Tier 2 (score below ambiguous threshold).
+    Suppressed,
+    /// Gray zone — forwarded to Tier 3 for LLM judgment.
+    GrayZone,
+}
+
 /// Rule types for spelling/terminology rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -448,6 +464,11 @@ pub struct Issue {
     /// `None`: calibration not attempted or API failure (no signal).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_match: Option<bool>,
+    /// Tier 2 disambiguation outcome.  Set by `disambiguate_batch` to
+    /// indicate whether the issue was resolved locally, suppressed, or
+    /// left in the gray zone for Tier 3.  Internal — not serialized.
+    #[serde(skip)]
+    pub tier2_outcome: Tier2Outcome,
     /// Internal: deferred spelling rule index for lazy issue inflation.
     /// When Some, suggestions/context/english/context_clues are empty
     /// placeholders that must be inflated from the compiled DB after
@@ -480,6 +501,7 @@ impl Issue {
             english: None,
             context_clues: None,
             anchor_match: None,
+            tier2_outcome: Tier2Outcome::NotEligible,
             spelling_rule_idx: None,
         }
     }

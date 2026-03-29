@@ -29,7 +29,7 @@ static SAMPLING_ID: AtomicU64 = AtomicU64::new(0);
 use serde_json::Value;
 
 use super::transport::StdinMsg;
-use crate::rules::ruleset::Issue;
+use crate::rules::ruleset::{Issue, Tier2Outcome};
 
 /// Default timeout for sampling responses (5 seconds).
 pub(crate) const DEFAULT_SAMPLING_TIMEOUT: Duration = Duration::from_secs(5);
@@ -524,11 +524,15 @@ fn find_matching_suggestion(text: &str, suggestions: &[String]) -> Option<String
 /// - `None` = no calibration signal, fall back to heuristic.
 ///
 /// Without calibration, eligible if english + (multi-suggestion or context_clues).
-pub(crate) fn is_sampling_eligible(
-    issue: &Issue,
-    _ambiguous_threshold: f32,
-    _decided_threshold: f32,
-) -> bool {
+pub(crate) fn is_sampling_eligible(issue: &Issue) -> bool {
+    // Tier 2 outcomes take precedence: Resolved and Suppressed are final,
+    // GrayZone proceeds to Tier 3, NotEligible falls through to legacy checks.
+    match issue.tier2_outcome {
+        Tier2Outcome::Resolved | Tier2Outcome::Suppressed => return false,
+        Tier2Outcome::GrayZone => return true,
+        Tier2Outcome::NotEligible => {} // fall through
+    }
+
     if issue.anchor_match == Some(true) && issue.suggestions.len() <= 1 {
         // Calibration confirmed the match and there's only one suggestion —
         // no ambiguity for the LLM to resolve.
@@ -572,17 +576,12 @@ pub(crate) fn refine_issues_with_sampling(
     issues: &mut [Issue],
     bridge: &mut SamplingBridge<'_>,
     text: &str,
-    ambiguous_threshold: f32,
-    decided_threshold: f32,
 ) -> SamplingStats {
     let used_before = bridge.used();
 
     if !bridge.has_budget() {
         // Count all eligible issues as skipped when budget is already zero.
-        let skipped = issues
-            .iter()
-            .filter(|i| is_sampling_eligible(i, ambiguous_threshold, decided_threshold))
-            .count();
+        let skipped = issues.iter().filter(|i| is_sampling_eligible(i)).count();
         return SamplingStats { used: 0, skipped };
     }
 
@@ -595,22 +594,18 @@ pub(crate) fn refine_issues_with_sampling(
         .saturating_mul(10);
 
     for (idx, issue) in issues.iter().enumerate() {
-        if !is_sampling_eligible(issue, ambiguous_threshold, decided_threshold) {
+        if !is_sampling_eligible(issue) {
             continue;
         }
         if eligible.len() >= cap {
             uncollected_skipped += 1;
             continue;
         }
-        let start = text.floor_char_boundary(issue.offset.saturating_sub(120));
-        let end = text.ceil_char_boundary(
-            issue
-                .offset
-                .saturating_add(issue.length)
-                .saturating_add(120)
-                .min(text.len()),
-        );
-        eligible.push((idx, text[start..end].to_string()));
+        // Use semantic chunking (51.7): extract a structurally bounded
+        // chunk rather than a raw ±120 char window.
+        let chunk =
+            crate::engine::disambig::extract_semantic_chunk(text, issue.offset, issue.length);
+        eligible.push((idx, chunk.to_string()));
     }
 
     if eligible.is_empty() && uncollected_skipped == 0 {
@@ -729,21 +724,21 @@ mod tests {
     #[test]
     fn eligible_confusable_with_english_multiple_suggestions() {
         let issue = make_confusable_issue("並行", vec!["平行", "並行"], "parallelism");
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
     fn eligible_with_context_clues() {
         let mut issue = make_confusable_issue("程序", vec!["程式"], "program");
         issue.context_clues = Some(vec!["編寫".into(), "執行".into()]);
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
     fn not_eligible_without_english() {
         let mut issue = make_confusable_issue("軟件", vec!["軟體"], "software");
         issue.english = None;
-        assert!(!is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(!is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -762,7 +757,7 @@ mod tests {
             i.col = 1;
             i
         };
-        assert!(!is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(!is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -770,7 +765,7 @@ mod tests {
         // anchor_match = Some(true) → calibration confirmed → skip sampling.
         let mut issue = make_confusable_issue("渲染", vec!["算繪"], "rendering");
         issue.anchor_match = Some(true);
-        assert!(!is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(!is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -779,7 +774,7 @@ mod tests {
         // needs to pick which suggestion is correct.
         let mut issue = make_confusable_issue("並行", vec!["平行", "並行"], "parallelism");
         issue.anchor_match = Some(true);
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -788,7 +783,7 @@ mod tests {
         // get a second opinion, so sampling remains eligible.
         let mut issue = make_confusable_issue("渲染", vec!["算繪", "彩現"], "rendering");
         issue.anchor_match = Some(false);
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -798,7 +793,7 @@ mod tests {
         // suggestion count.
         let mut issue = make_confusable_issue("渲染", vec!["算繪"], "rendering");
         issue.anchor_match = Some(false);
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -807,7 +802,7 @@ mod tests {
         // eligible if english + (multi-suggestion or context_clues).
         let issue = make_confusable_issue("渲染", vec!["算繪", "彩現"], "rendering");
         assert!(issue.anchor_match.is_none());
-        assert!(is_sampling_eligible(&issue, 0.3, 0.8));
+        assert!(is_sampling_eligible(&issue));
     }
 
     #[test]
@@ -1068,7 +1063,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_secs(5), 5);
 
-        refine_issues_with_sampling(&mut issues, &mut bridge, "這個算法支持並行計算", 0.3, 0.8);
+        refine_issues_with_sampling(&mut issues, &mut bridge, "這個算法支持並行計算");
 
         assert_eq!(issues[0].suggestions[0], "平行"); // promoted to front
         assert!(issues[0]
@@ -1248,7 +1243,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 5);
 
-        refine_issues_with_sampling(&mut issues, &mut bridge, "context", 0.3, 0.8);
+        refine_issues_with_sampling(&mut issues, &mut bridge, "context");
 
         // Severity must be unchanged; only the context annotation is added.
         assert_eq!(issues[0].severity, original_severity);
@@ -1482,7 +1477,7 @@ mod tests {
         // Budget = 2, short timeout so calls fail fast.
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 2);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, text, 0.3, 0.8);
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, text);
 
         // 2 calls made (both timeout), 5 eligible issues skipped.
         assert_eq!(stats.used, 2, "should have used 2 budget slots");
@@ -1511,7 +1506,7 @@ mod tests {
         let mut writer = Cursor::new(Vec::new());
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 5);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "軟件", 0.3, 0.8);
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "軟件");
 
         assert_eq!(stats.used, 0);
         assert_eq!(stats.skipped, 0);
@@ -1531,7 +1526,7 @@ mod tests {
         // Budget = 0: all eligible issues are skipped immediately.
         let mut bridge = SamplingBridge::new(&mut writer, &rx, Duration::from_millis(10), 0);
 
-        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "ctx", 0.3, 0.8);
+        let stats = refine_issues_with_sampling(&mut issues, &mut bridge, "ctx");
 
         assert_eq!(stats.used, 0);
         assert_eq!(stats.skipped, 3, "all 3 eligible issues should be skipped");

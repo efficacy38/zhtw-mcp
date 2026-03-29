@@ -2548,7 +2548,7 @@
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "heap",
-      "exceptions": ["堆疊", "垃圾堆", "土堆", "障堆", "堆積"]
+      "exceptions": ["堆疊", "垃圾堆", "土堆", "障堆", "堆積", "一堆"]
     },
     {
       "from": "堆棧",
@@ -5002,13 +5002,6 @@
       "english": "desktop computer"
     },
     {
-      "from": "權限",
-      "to": ["許可權"],
-      "type": "cross_strait",
-      "context": "@domain 作業系統",
-      "english": "permission"
-    },
-    {
       "from": "歐拉",
       "to": ["尤拉"],
       "type": "cross_strait",
@@ -6677,7 +6670,7 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "compile time",
-      "exceptions": ["編譯時期"]
+      "exceptions": ["編譯時期", "編譯時間"]
     },
     {
       "from": "編譯期",
@@ -7488,6 +7481,13 @@
       "context": "@domain 程式設計。限軟體設計語境。「設計模式」在 tw 也常用，此規則僅在明確軟體設計語境提示",
       "english": "design pattern",
       "context_clues": ["GoF", "物件導向", "面向對象", "軟體", "軟件"]
+    },
+    {
+      "from": "許可權",
+      "to": ["權限"],
+      "type": "cross_strait",
+      "context": "@domain 作業系統。「權限」為台灣慣用詞",
+      "english": "permission"
     },
     {
       "from": "許可證",

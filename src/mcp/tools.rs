@@ -17,6 +17,7 @@ use super::types::{
     METHOD_NOT_FOUND, SERVER_NOT_INITIALIZED,
 };
 use crate::audit::Trace;
+use crate::engine::disambig::{disambiguate_batch, DisambigConfig, DisambigStats};
 use crate::engine::excluded::ByteRange;
 use crate::engine::s2t::S2TConverter;
 use crate::engine::scan::{build_exclusions_for_content_type, ContentType, Scanner};
@@ -414,8 +415,17 @@ impl Server {
                     None
                 };
 
+                // Tier 2: local disambiguation.  Resolves issues via context
+                // clues, profile priors, and collocations before LLM sampling.
+                let disambig_cfg = DisambigConfig {
+                    profile,
+                    ..Default::default()
+                };
+                let disambig_stats = disambiguate_batch(&mut issues, text, &disambig_cfg);
+
+                // Tier 3: LLM sampling for gray-zone issues only.
                 let sampling_stats = if let Some(b) = bridge.as_mut() {
-                    refine_issues_with_sampling(&mut issues, b, text, 0.3, 0.8)
+                    refine_issues_with_sampling(&mut issues, b, text)
                 } else {
                     SamplingStats::default()
                 };
@@ -448,6 +458,7 @@ impl Server {
                     ai_signature: ai_signature.as_ref(),
                     tm_suppressed,
                     sampling_stats,
+                    disambig_stats,
                 })
             }
 
@@ -478,8 +489,16 @@ impl Server {
                     None
                 };
 
+                // Tier 2: local disambiguation.
+                let disambig_cfg = DisambigConfig {
+                    profile,
+                    ..Default::default()
+                };
+                let disambig_stats = disambiguate_batch(&mut issues, text, &disambig_cfg);
+
+                // Tier 3: LLM sampling for gray-zone issues only.
                 let sampling_stats = if let Some(b) = bridge.as_mut() {
-                    refine_issues_with_sampling(&mut issues, b, text, 0.3, 0.8)
+                    refine_issues_with_sampling(&mut issues, b, text)
                 } else {
                     SamplingStats::default()
                 };
@@ -620,6 +639,7 @@ impl Server {
                     ai_signature: ai_signature.as_ref(),
                     tm_suppressed,
                     sampling_stats,
+                    disambig_stats,
                 })
             }
         })
@@ -1276,6 +1296,13 @@ struct IssueSummary {
     /// Omitted (0) when TM is inactive or had no effect.
     #[serde(skip_serializing_if = "is_zero")]
     tm_suppressed: usize,
+    /// Issues resolved by Tier 2 local disambiguation (context clues,
+    /// profile priors, collocations).  Omitted (0) when Tier 2 had no effect.
+    #[serde(skip_serializing_if = "is_zero")]
+    tier2_resolved: usize,
+    /// Issues in Tier 2 gray zone (forwarded to Tier 3 LLM).
+    #[serde(skip_serializing_if = "is_zero")]
+    tier2_gray_zone: usize,
     /// Number of sampling calls made during this invocation.
     /// Omitted (0) when sampling is inactive or unused.
     #[serde(skip_serializing_if = "is_zero")]
@@ -1420,12 +1447,15 @@ fn build_summary(
     issues: &[Issue],
     tm_suppressed: usize,
     sampling_stats: SamplingStats,
+    disambig_stats: &DisambigStats,
 ) -> IssueSummary {
     let mut s = IssueSummary {
         errors: 0,
         warnings: 0,
         info: 0,
         tm_suppressed,
+        tier2_resolved: disambig_stats.tier2_resolved,
+        tier2_gray_zone: disambig_stats.gray_zone,
         sampling_used: sampling_stats.used,
         sampling_skipped: sampling_stats.skipped,
     };
@@ -1468,6 +1498,8 @@ struct CheckOutputParams<'a> {
     tm_suppressed: usize,
     /// Sampling budget usage statistics.
     sampling_stats: SamplingStats,
+    /// Tier 2 disambiguation statistics.
+    disambig_stats: DisambigStats,
 }
 
 /// Build the unified zhtw JSON response and wrap it in a CallToolResult.
@@ -1480,7 +1512,12 @@ struct CheckOutputParams<'a> {
 /// allocations. Uses compact JSON by default; set `ZHTW_PRETTY=1` env var
 /// for indented output during debugging.
 fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
-    let summary = build_summary(params.issues, params.tm_suppressed, params.sampling_stats);
+    let summary = build_summary(
+        params.issues,
+        params.tm_suppressed,
+        params.sampling_stats,
+        &params.disambig_stats,
+    );
 
     let max_err = params.max_errors.unwrap_or(0) as usize;
     let max_warn = params.max_warnings.unwrap_or(0) as usize;
@@ -2091,6 +2128,8 @@ mod tests {
             warnings: 2,
             info: 0,
             tm_suppressed: 0,
+            tier2_resolved: 0,
+            tier2_gray_zone: 0,
             sampling_used: 0,
             sampling_skipped: 0,
         };
@@ -2107,6 +2146,8 @@ mod tests {
             warnings: 3,
             info: 1,
             tm_suppressed: 0,
+            tier2_resolved: 0,
+            tier2_gray_zone: 0,
             sampling_used: 2,
             sampling_skipped: 5,
         };
@@ -2135,11 +2176,35 @@ mod tests {
             used: 3,
             skipped: 7,
         };
-        let summary = build_summary(&issues, 1, stats);
+        let disambig = DisambigStats::default();
+        let summary = build_summary(&issues, 1, stats, &disambig);
         assert_eq!(summary.errors, 1);
         assert_eq!(summary.warnings, 1);
         assert_eq!(summary.tm_suppressed, 1);
         assert_eq!(summary.sampling_used, 3);
         assert_eq!(summary.sampling_skipped, 7);
+    }
+
+    #[test]
+    fn build_summary_excludes_hard_anchors_from_tier2_resolved() {
+        let issues = vec![Issue::new(
+            0,
+            3,
+            "foo",
+            vec!["bar".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        )];
+        let disambig = DisambigStats {
+            hard_anchor: 2,
+            tier2_resolved: 3,
+            suppressed: 0,
+            gray_zone: 1,
+            not_eligible: 0,
+        };
+
+        let summary = build_summary(&issues, 0, SamplingStats::default(), &disambig);
+        assert_eq!(summary.tier2_resolved, 3);
+        assert_eq!(summary.tier2_gray_zone, 1);
     }
 }
