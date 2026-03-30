@@ -262,6 +262,44 @@ pub enum Tier2Outcome {
     GrayZone,
 }
 
+/// Which tier authored the resolution of an issue.
+/// Injected per-issue in JSON output when `include_stats` is true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionTier {
+    /// Pure rule match — no disambiguation needed (punctuation, case,
+    /// variant, grammar, unambiguous spelling).
+    Deterministic,
+    /// Resolved by Tier 2 local heuristics (context clues, profile
+    /// priors, collocations, combined evidence).
+    Heuristic,
+    /// Resolved by Tier 3 LLM sampling or judgment cache.
+    LlmJudged,
+    /// Not conclusively resolved: suppressed as likely FP, skipped
+    /// by budget exhaustion, or left in gray zone without LLM.
+    Unresolved,
+}
+
+impl ResolutionTier {
+    /// Derive the resolution tier from the issue's tier2_outcome and
+    /// whether LLM sampling produced a judgment (indicated by context
+    /// annotation).
+    pub fn classify(issue: &Issue) -> Self {
+        match issue.tier2_outcome {
+            Tier2Outcome::NotEligible => ResolutionTier::Deterministic,
+            Tier2Outcome::Resolved => ResolutionTier::Heuristic,
+            Tier2Outcome::Suppressed => ResolutionTier::Unresolved,
+            Tier2Outcome::GrayZone => {
+                if issue.llm_judged {
+                    ResolutionTier::LlmJudged
+                } else {
+                    ResolutionTier::Unresolved
+                }
+            }
+        }
+    }
+}
+
 /// Rule types for spelling/terminology rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -469,6 +507,12 @@ pub struct Issue {
     /// left in the gray zone for Tier 3.  Internal — not serialized.
     #[serde(skip)]
     pub tier2_outcome: Tier2Outcome,
+    /// Whether Tier 3 LLM sampling produced a judgment for this issue.
+    /// Set by `refine_issues_with_sampling` (or judgment cache hit).
+    /// Used by `ResolutionTier::classify` to distinguish LLM-judged from
+    /// unresolved gray-zone issues without fragile string parsing.
+    #[serde(skip)]
+    pub llm_judged: bool,
     /// Internal: deferred spelling rule index for lazy issue inflation.
     /// When Some, suggestions/context/english/context_clues are empty
     /// placeholders that must be inflated from the compiled DB after
@@ -502,6 +546,7 @@ impl Issue {
             context_clues: None,
             anchor_match: None,
             tier2_outcome: Tier2Outcome::NotEligible,
+            llm_judged: false,
             spelling_rule_idx: None,
         }
     }

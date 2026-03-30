@@ -803,6 +803,10 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
     let multi = resolved.len() > 1;
     let mut total_errors: usize = 0;
     let mut total_warnings: usize = 0;
+    let mut total_deterministic: usize = 0;
+    let mut total_heuristic: usize = 0;
+    let mut total_llm_judged: usize = 0;
+    let mut total_unresolved: usize = 0;
     let mut all_file_results: Vec<CliFileOutput> = Vec::new();
     let mut sarif_results: Vec<SarifResult> = Vec::new();
     let mut sarif_rules: std::collections::BTreeMap<String, SarifRuleDef> =
@@ -1169,6 +1173,17 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             .count();
         total_errors += error_count;
         total_warnings += warning_count;
+
+        // Accumulate resolution tier stats from the final reported issues.
+        for issue in &new_issues {
+            use zhtw_mcp::rules::ruleset::ResolutionTier;
+            match ResolutionTier::classify(issue) {
+                ResolutionTier::Deterministic => total_deterministic += 1,
+                ResolutionTier::Heuristic => total_heuristic += 1,
+                ResolutionTier::LlmJudged => total_llm_judged += 1,
+                ResolutionTier::Unresolved => total_unresolved += 1,
+            }
+        }
 
         // Use new_issues for reporting (baseline issues filtered out).
         let report_issues = new_issues;
@@ -1557,6 +1572,10 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             total_errors + total_warnings,
             total_errors,
             total_warnings,
+        );
+        eprintln!(
+            "[telemetry] resolution: deterministic={} heuristic={} llm_judged={} unresolved={}",
+            total_deterministic, total_heuristic, total_llm_judged, total_unresolved,
         );
     }
 

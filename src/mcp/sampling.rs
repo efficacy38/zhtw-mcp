@@ -761,6 +761,7 @@ pub(crate) fn refine_issues_with_sampling(
 /// Apply a disambiguation result to an issue: promote matched suggestion
 /// to front, or downgrade to Info on rejection.
 fn apply_disambiguation(issue: &mut Issue, matched_term: &Option<String>, detail: &str) {
+    issue.llm_judged = true;
     if let Some(term) = matched_term {
         if let Some(pos) = issue.suggestions.iter().position(|s| s == term) {
             let mut sugs = issue.suggestions.to_vec();

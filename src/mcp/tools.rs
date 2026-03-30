@@ -30,7 +30,7 @@ use crate::fixer::{
 };
 use crate::rules::loader::compute_ruleset_hash;
 use crate::rules::ruleset::Ruleset;
-use crate::rules::ruleset::{Issue, IssueType, PoliticalStance, Profile, Severity};
+use crate::rules::ruleset::{Issue, IssueType, PoliticalStance, Profile, ResolutionTier, Severity};
 use crate::rules::store::{OverrideStore, PackStore, SuppressionStore, TranslationMemoryStore};
 
 /// The MCP tool server. Holds the compiled scanner, override/pack stores,
@@ -379,10 +379,24 @@ impl Server {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let include_stats = args
+            .get("include_stats")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         if include_telemetry && output_mode == OutputMode::Tabular {
             return Err(param_error(
                 &id,
                 "include_telemetry",
+                "true",
+                &["false", "or use output=full|compact|summary"],
+            ));
+        }
+
+        if include_stats && output_mode == OutputMode::Tabular {
+            return Err(param_error(
+                &id,
+                "include_stats",
                 "true",
                 &["false", "or use output=full|compact|summary"],
             ));
@@ -513,6 +527,7 @@ impl Server {
                     sampling_stats,
                     disambig_stats,
                     telemetry,
+                    include_stats,
                 })
             }
 
@@ -722,6 +737,7 @@ impl Server {
                     sampling_stats,
                     disambig_stats,
                     telemetry,
+                    include_stats,
                 })
             }
         })
@@ -875,6 +891,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "detect_ai",
             "ai_threshold",
             "include_telemetry",
+            "include_stats",
         ]
     }
     #[cfg(not(feature = "translate"))]
@@ -895,6 +912,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "detect_ai",
             "ai_threshold",
             "include_telemetry",
+            "include_stats",
         ]
     }
 }
@@ -1401,6 +1419,69 @@ fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
+/// Resolution tier counts and confidence distribution for the session.
+/// Included in tool output when `include_stats` is true.
+#[derive(Serialize)]
+struct SummaryMetrics {
+    deterministic_fixes: usize,
+    heuristic_fixes: usize,
+    llm_judged_fixes: usize,
+    unresolved: usize,
+    llm_calls: usize,
+    llm_tokens: u64,
+    confidence_distribution: ConfidenceDistribution,
+}
+
+/// Confidence buckets: high (deterministic + heuristic), medium (llm_judged),
+/// low (unresolved).
+#[derive(Serialize)]
+struct ConfidenceDistribution {
+    high: usize,
+    medium: usize,
+    low: usize,
+}
+
+/// Build summary_metrics from issues and accumulated stats.
+fn build_summary_metrics(
+    issues: &[Issue],
+    sampling_stats: &SamplingStats,
+    telemetry: Option<&TelemetryMetrics>,
+) -> SummaryMetrics {
+    let mut deterministic = 0usize;
+    let mut heuristic = 0usize;
+    let mut llm_judged = 0usize;
+    let mut unresolved = 0usize;
+
+    for issue in issues {
+        match ResolutionTier::classify(issue) {
+            ResolutionTier::Deterministic => deterministic += 1,
+            ResolutionTier::Heuristic => heuristic += 1,
+            ResolutionTier::LlmJudged => llm_judged += 1,
+            ResolutionTier::Unresolved => unresolved += 1,
+        }
+    }
+
+    let llm_tokens = telemetry.map_or(0, |t| {
+        t.raw
+            .estimated_prompt_tokens
+            .saturating_add(t.raw.estimated_completion_tokens)
+    });
+
+    SummaryMetrics {
+        deterministic_fixes: deterministic,
+        heuristic_fixes: heuristic,
+        llm_judged_fixes: llm_judged,
+        unresolved,
+        llm_calls: sampling_stats.used,
+        llm_tokens,
+        confidence_distribution: ConfidenceDistribution {
+            high: deterministic + heuristic,
+            medium: llm_judged,
+            low: unresolved,
+        },
+    }
+}
+
 /// Gate status in the tool response.
 #[derive(Serialize)]
 struct GateInfo {
@@ -1427,7 +1508,7 @@ struct AnchorProvenanceOwned {
     anchor_match: Option<bool>,
 }
 
-/// Issue with optional explain annotations, serialized directly without
+/// Issue with optional explain/stats annotations, serialized directly without
 /// intermediate Value allocation.
 #[derive(Serialize)]
 struct AnnotatedIssue<'a> {
@@ -1437,6 +1518,10 @@ struct AnnotatedIssue<'a> {
     explanation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     anchor_provenance: Option<AnchorProvenance<'a>>,
+    /// Resolution tier: which pipeline stage authored this issue's resolution.
+    /// Present only when `include_stats` is true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution: Option<ResolutionTier>,
 }
 
 /// Issues list: either plain references or annotated wrappers.
@@ -1490,6 +1575,8 @@ struct FullOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_metrics: Option<&'a SummaryMetrics>,
 }
 
 /// Compact tool response (serialized directly, no intermediate Value).
@@ -1516,6 +1603,8 @@ struct CompactOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_metrics: Option<&'a SummaryMetrics>,
 }
 
 /// Summary-only output: issue counts + AI signature, no individual issues or text.
@@ -1530,6 +1619,8 @@ struct SummaryOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_metrics: Option<&'a SummaryMetrics>,
 }
 
 /// Count issues by severity.
@@ -1592,6 +1683,8 @@ struct CheckOutputParams<'a> {
     disambig_stats: DisambigStats,
     /// Token telemetry metrics (only when include_telemetry is true).
     telemetry: Option<TelemetryMetrics>,
+    /// Whether to include per-issue resolution tier and summary_metrics.
+    include_stats: bool,
 }
 
 /// Build telemetry metrics from accumulated counters.
@@ -1645,6 +1738,16 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
         &params.disambig_stats,
     );
 
+    let stats_metrics = if params.include_stats {
+        Some(build_summary_metrics(
+            params.issues,
+            &params.sampling_stats,
+            params.telemetry.as_ref(),
+        ))
+    } else {
+        None
+    };
+
     let max_err = params.max_errors.unwrap_or(0) as usize;
     let max_warn = params.max_warnings.unwrap_or(0) as usize;
     let gate_enabled = params.max_errors.is_some() || params.max_warnings.is_some();
@@ -1693,7 +1796,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
 
     let serialize_result = match params.output_mode {
         OutputMode::Full => {
-            let issues = build_issues_list(params.issues, params.explain);
+            let issues = build_issues_list(params.issues, params.explain, params.include_stats);
             let output = FullOutput {
                 accepted,
                 text: effective_text,
@@ -1711,11 +1814,12 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 verify,
                 ai_signature: params.ai_signature,
                 telemetry: params.telemetry.as_ref(),
+                summary_metrics: stats_metrics.as_ref(),
             };
             serialize_output(&output)
         }
         OutputMode::Compact => {
-            let issues = build_compact_groups(params.issues, params.explain);
+            let issues = build_compact_groups(params.issues, params.explain, params.include_stats);
             let output = CompactOutput {
                 accepted,
                 text: if params.has_fixes {
@@ -1735,6 +1839,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 verify,
                 ai_signature: params.ai_signature,
                 telemetry: params.telemetry.as_ref(),
+                summary_metrics: stats_metrics.as_ref(),
             };
             serialize_output(&output)
         }
@@ -1760,6 +1865,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 detected_script: params.detected_script,
                 ai_signature: params.ai_signature,
                 telemetry: params.telemetry.as_ref(),
+                summary_metrics: stats_metrics.as_ref(),
             };
             serialize_output(&output)
         }
@@ -1789,15 +1895,24 @@ fn serialize_output(output: &impl serde::Serialize) -> serde_json::Result<String
     }
 }
 
-/// Build issues list for full output mode: either plain references (no explain)
-/// or annotated wrappers with explanation and anchor provenance.
-fn build_issues_list<'a>(issues: &'a [Issue], explain: bool) -> IssuesList<'a> {
-    if explain {
+/// Build issues list for full output mode: either plain references (no extra
+/// fields) or annotated wrappers with explanation, anchor provenance, and/or
+/// resolution tier.
+fn build_issues_list<'a>(
+    issues: &'a [Issue],
+    explain: bool,
+    include_stats: bool,
+) -> IssuesList<'a> {
+    if explain || include_stats {
         let annotated: Vec<AnnotatedIssue<'a>> = issues
             .iter()
             .map(|issue| {
-                let explanation = build_explanation(issue);
-                let anchor_provenance = if issue.anchor_match.is_some() {
+                let explanation = if explain {
+                    build_explanation(issue)
+                } else {
+                    None
+                };
+                let anchor_provenance = if explain && issue.anchor_match.is_some() {
                     Some(AnchorProvenance {
                         anchor_en: issue.english.as_deref(),
                         anchor_match: issue.anchor_match,
@@ -1805,10 +1920,16 @@ fn build_issues_list<'a>(issues: &'a [Issue], explain: bool) -> IssuesList<'a> {
                 } else {
                     None
                 };
+                let resolution = if include_stats {
+                    Some(ResolutionTier::classify(issue))
+                } else {
+                    None
+                };
                 AnnotatedIssue {
                     issue,
                     explanation,
                     anchor_provenance,
+                    resolution,
                 }
             })
             .collect();
@@ -1823,21 +1944,32 @@ fn build_issues_list<'a>(issues: &'a [Issue], explain: bool) -> IssuesList<'a> {
 /// Groups issues by (found, rule_type, suggestions, severity) key. Each group
 /// becomes one entry with count and locations. Serialized directly via
 /// `#[derive(Serialize)]` on `CompactGroup` — no intermediate `Value` per group.
-fn build_compact_groups(issues: &[Issue], explain: bool) -> Vec<CompactGroup> {
+fn build_compact_groups(issues: &[Issue], explain: bool, include_stats: bool) -> Vec<CompactGroup> {
     use std::collections::BTreeMap;
 
-    // Key: (found, rule_type, suggestions_joined, severity)
+    // Key: (found, rule_type, suggestions_joined, severity, resolution_tier_discriminant)
     // Include severity so that sampling can produce mixed-severity occurrences
     // of the same term without silently inheriting the first occurrence's level.
+    // When include_stats is true, also partition by resolution tier so the
+    // per-group resolution field is accurate.
     // Uses shared IssueType::name() and Severity::name() from ruleset.rs.
     // We use BTreeMap for deterministic ordering.
-    let mut groups: BTreeMap<(&str, &str, String, &str), CompactGroup> = BTreeMap::new();
+    let mut groups: BTreeMap<(&str, &str, String, &str, u8), CompactGroup> = BTreeMap::new();
 
     for issue in issues {
         let rt = issue.rule_type.name();
         let sug_key = issue.suggestions.join("|");
         let sev_key = issue.severity.name();
-        let key = (issue.found.as_str(), rt, sug_key, sev_key);
+        // Compute resolution tier once; reuse for both grouping key and field value.
+        // Discriminant 0 when stats disabled (all group together); distinct
+        // per-tier when enabled so the resolution field stays accurate.
+        let tier = if include_stats {
+            Some(ResolutionTier::classify(issue))
+        } else {
+            None
+        };
+        let tier_disc = tier.map_or(0, |t| t as u8 + 1);
+        let key = (issue.found.as_str(), rt, sug_key, sev_key, tier_disc);
 
         let group = groups.entry(key).or_insert_with(|| CompactGroup {
             found: issue.found.clone(),
@@ -1859,6 +1991,7 @@ fn build_compact_groups(issues: &[Issue], explain: bool) -> Vec<CompactGroup> {
             } else {
                 None
             },
+            resolution: tier,
             count: 0,
             locations: Vec::new(),
         });
@@ -2166,6 +2299,9 @@ struct CompactGroup {
     explanation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     anchor_provenance: Option<AnchorProvenanceOwned>,
+    /// Resolution tier for all issues in this group.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution: Option<ResolutionTier>,
     count: usize,
     locations: Vec<CompactLocation>,
 }
@@ -2235,6 +2371,10 @@ fn tool_definitions() -> Vec<ToolDef> {
                 "type": "boolean",
                 "description": "Include per-request token telemetry metrics in the response (LLM cost accounting)"
             }));
+            props.insert("include_stats".into(), json!({
+                "type": "boolean",
+                "description": "Include per-issue resolution tier and session-level summary_metrics (deterministic/heuristic/llm_judged/unresolved counts, confidence distribution)"
+            }));
             json!({
                 "type": "object",
                 "properties": Value::Object(props),
@@ -2254,6 +2394,7 @@ fn tool_definitions() -> Vec<ToolDef> {
 mod tests {
     use super::*;
     use crate::mcp::types::RequestId;
+    use crate::rules::ruleset::Tier2Outcome;
 
     #[test]
     fn issue_summary_omits_zero_sampling_fields() {
@@ -2317,6 +2458,157 @@ mod tests {
         assert_eq!(summary.tm_suppressed, 1);
         assert_eq!(summary.sampling_used, 3);
         assert_eq!(summary.sampling_skipped, 7);
+    }
+
+    #[test]
+    fn resolution_tier_classify_deterministic() {
+        let issue = Issue::new(0, 3, "foo", vec![], IssueType::Punctuation, Severity::Error);
+        assert_eq!(
+            ResolutionTier::classify(&issue),
+            ResolutionTier::Deterministic
+        );
+    }
+
+    #[test]
+    fn resolution_tier_classify_heuristic() {
+        let mut issue = Issue::new(
+            0,
+            3,
+            "foo",
+            vec!["bar".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        );
+        issue.tier2_outcome = Tier2Outcome::Resolved;
+        assert_eq!(ResolutionTier::classify(&issue), ResolutionTier::Heuristic);
+    }
+
+    #[test]
+    fn resolution_tier_classify_llm_judged() {
+        let mut issue = Issue::new(
+            0,
+            3,
+            "foo",
+            vec!["bar".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        );
+        issue.tier2_outcome = Tier2Outcome::GrayZone;
+        issue.llm_judged = true;
+        assert_eq!(ResolutionTier::classify(&issue), ResolutionTier::LlmJudged);
+    }
+
+    #[test]
+    fn resolution_tier_classify_unresolved_gray_zone() {
+        let mut issue = Issue::new(
+            0,
+            3,
+            "foo",
+            vec!["bar".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        );
+        issue.tier2_outcome = Tier2Outcome::GrayZone;
+        // No LLM annotation — stays unresolved.
+        assert_eq!(ResolutionTier::classify(&issue), ResolutionTier::Unresolved);
+    }
+
+    #[test]
+    fn resolution_tier_classify_suppressed() {
+        let mut issue = Issue::new(0, 3, "foo", vec![], IssueType::CrossStrait, Severity::Info);
+        issue.tier2_outcome = Tier2Outcome::Suppressed;
+        assert_eq!(ResolutionTier::classify(&issue), ResolutionTier::Unresolved);
+    }
+
+    #[test]
+    fn summary_metrics_counts_tiers() {
+        let mut issues = vec![
+            Issue::new(0, 1, "a", vec![], IssueType::Punctuation, Severity::Error),
+            Issue::new(
+                1,
+                1,
+                "b",
+                vec!["c".into()],
+                IssueType::CrossStrait,
+                Severity::Warning,
+            ),
+            Issue::new(
+                2,
+                1,
+                "d",
+                vec!["e".into()],
+                IssueType::CrossStrait,
+                Severity::Warning,
+            ),
+            Issue::new(
+                3,
+                1,
+                "f",
+                vec!["g".into()],
+                IssueType::Confusable,
+                Severity::Warning,
+            ),
+        ];
+        issues[1].tier2_outcome = Tier2Outcome::Resolved;
+        issues[2].tier2_outcome = Tier2Outcome::GrayZone;
+        issues[2].llm_judged = true;
+        issues[3].tier2_outcome = Tier2Outcome::Suppressed;
+
+        let stats = SamplingStats {
+            used: 1,
+            skipped: 0,
+        };
+        let metrics = build_summary_metrics(&issues, &stats, None);
+
+        assert_eq!(metrics.deterministic_fixes, 1);
+        assert_eq!(metrics.heuristic_fixes, 1);
+        assert_eq!(metrics.llm_judged_fixes, 1);
+        assert_eq!(metrics.unresolved, 1);
+        assert_eq!(metrics.llm_calls, 1);
+        assert_eq!(metrics.llm_tokens, 0);
+        assert_eq!(metrics.confidence_distribution.high, 2);
+        assert_eq!(metrics.confidence_distribution.medium, 1);
+        assert_eq!(metrics.confidence_distribution.low, 1);
+    }
+
+    #[test]
+    fn summary_metrics_omitted_without_flag() {
+        let issues = vec![Issue::new(
+            0,
+            3,
+            "foo",
+            vec![],
+            IssueType::CrossStrait,
+            Severity::Error,
+        )];
+        let disambig = DisambigStats::default();
+        let summary = build_summary(&issues, 0, SamplingStats::default(), &disambig);
+        let output = SummaryOutput {
+            accepted: true,
+            summary: &summary,
+            gate: GateInfo {
+                enabled: false,
+                max_errors: 0,
+                residual_errors: 1,
+                max_warnings: 0,
+                residual_warnings: 0,
+            },
+            profile: "base",
+            detected_script: "traditional",
+            ai_signature: None,
+            telemetry: None,
+            summary_metrics: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("summary_metrics"));
+        assert!(!json.contains("deterministic_fixes"));
+    }
+
+    #[test]
+    fn resolution_tier_serializes_snake_case() {
+        let tier = ResolutionTier::LlmJudged;
+        let json = serde_json::to_value(tier).unwrap();
+        assert_eq!(json, serde_json::json!("llm_judged"));
     }
 
     #[test]
