@@ -1260,6 +1260,70 @@ fn e2e_response_shaped_without_id_discarded() {
     assert!(status.success(), "child exited with {status}");
 }
 
+#[test]
+fn e2e_notification_with_id_no_response() {
+    let bin = binary_path();
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let overrides_path = tmp_dir.path().join("overrides.json");
+    let suppressions_path = tmp_dir.path().join("suppressions.json");
+
+    let mut child = Command::new(&bin)
+        .args([
+            "--overrides",
+            overrides_path.to_str().unwrap(),
+            "--suppressions",
+            suppressions_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn zhtw-mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    // Step 1: initialize
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "0.1" }
+            }
+        }),
+    );
+    assert_eq!(resp["id"], 1);
+    assert!(
+        resp.get("error").is_none(),
+        "initialize should succeed: {resp}"
+    );
+    assert!(resp["result"].is_object());
+
+    // Step 2: notifications/initialized with an id field (invalid).
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "id": 200
+        }),
+    );
+    assert_eq!(resp["id"], 200);
+    let err = resp.get("error").expect("expected error response");
+    assert_eq!(err["code"].as_i64().unwrap(), -32600); // INVALID_REQUEST
+
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success(), "child exited with {status}");
+}
+
 /// AI agent clients (e.g. claude-code) should auto-default to compact output
 /// without explicitly passing `"output": "compact"`.
 #[test]
