@@ -24,6 +24,8 @@ pub(crate) mod rule_ir;
 mod spacing;
 mod spelling;
 
+pub use rule_ir::ProfileFilter;
+
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 
 use super::excluded::{build_excluded_ranges, merge_ranges_pub, ByteRange};
@@ -593,6 +595,10 @@ pub struct Scanner {
 
     /// MMSEG segmenter for fixer context-clue checks and public accessor.
     segmenter: Segmenter,
+
+    /// Profile filter used at construction time.  Stored so scan-time
+    /// config compatibility can be verified via debug_assert.
+    build_filter: rule_ir::ProfileFilter,
 }
 
 impl Scanner {
@@ -714,6 +720,10 @@ impl Scanner {
     /// Rules whose types are excluded by `filter` are omitted from the AC
     /// automaton entirely, shrinking it by ~5% under the default profile.
     /// Use this when the target profile is known at construction time.
+    ///
+    /// The resulting scanner is profile-locked: scan-time config flags
+    /// cannot re-enable rule types that were excluded at build time.
+    /// Callers must ensure the filter matches the scan-time config.
     pub fn new_filtered(
         spelling_rules: Vec<SpellingRule>,
         case_rules: Vec<CaseRule>,
@@ -730,20 +740,7 @@ impl Scanner {
             Ok(db) => db,
             Err(e) => {
                 eprintln!("[zhtw-mcp] spelling rule compilation failed: {e}");
-                rule_ir::CompiledSpellingDb {
-                    ac_charwise: None,
-                    ac_bytewise: None,
-                    rules: Vec::new(),
-                    clue_ac: None,
-                    absorber_strings: Vec::new(),
-                    spelling_rules: Vec::new(),
-                    spelling_suggestions: Vec::new(),
-                    rule_pos_clue_ids: Vec::new(),
-                    rule_neg_clue_ids: Vec::new(),
-                    rule_positional_clues: Vec::new(),
-                    rule_filter_flags: Vec::new(),
-                    rule_classes: Vec::new(),
-                }
+                rule_ir::CompiledSpellingDb::empty()
             }
         };
 
@@ -766,6 +763,7 @@ impl Scanner {
             case_ac,
             case_rules,
             segmenter,
+            build_filter: *filter,
         }
     }
 
@@ -966,6 +964,16 @@ impl Scanner {
         cfg: ProfileConfig,
         scratch: &mut ScratchSpace,
     ) -> ScanOutput {
+        // Verify scan-time config doesn't re-enable rule types excluded at build time.
+        debug_assert!(
+            !(self.build_filter.exclude_variant && cfg.variant_normalization),
+            "scan config enables variant_normalization but scanner was built without variant rules"
+        );
+        debug_assert!(
+            !(self.build_filter.exclude_ai_filler && cfg.ai_filler_detection),
+            "scan config enables ai_filler_detection but scanner was built without ai_filler rules"
+        );
+
         scratch.clear();
 
         if text.is_empty() {
@@ -1051,7 +1059,12 @@ impl Scanner {
         // english, context_clues from the compiled DB.  Only survivors
         // of overlap resolution get the full clone cost.  Must run before
         // fix_quote_pairing which overwrites suggestions on CN quote issues.
-        rule_ir::inflate_spelling_issues(&self.spelling_db, text, issues);
+        // In offset_only mode, skip context/english/context_clues (not serialized).
+        if cfg.offset_only {
+            rule_ir::inflate_spelling_issues_compact(&self.spelling_db, text, issues);
+        } else {
+            rule_ir::inflate_spelling_issues(&self.spelling_db, text, issues);
+        }
 
         // Grammar checks run AFTER overlap resolution so broad grammar spans
         // (e.g. 是不是…嗎) do not suppress narrower spelling/case issues

@@ -768,7 +768,9 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
         params.active_packs,
     );
     let ruleset_hash = zhtw_mcp::rules::loader::compute_ruleset_hash(&spelling_rules, &case_rules);
-    let scanner = zhtw_mcp::engine::scan::Scanner::new(spelling_rules, case_rules);
+    let filter = zhtw_mcp::engine::scan::ProfileFilter::from_config(&cfg);
+    let scanner =
+        zhtw_mcp::engine::scan::Scanner::new_filtered(spelling_rules, case_rules, &filter);
     let s2t = zhtw_mcp::engine::s2t::S2TConverter::new();
 
     // Open translation memory (if path provided and file exists/creatable).
@@ -1313,8 +1315,8 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                         CompactGroup {
                             first_loc: (issue.line, issue.col),
                             locs: Vec::new(),
-                            context: issue.context.clone(),
-                            english: issue.english.clone(),
+                            context: issue.context.as_deref().map(str::to_string),
+                            english: issue.english.as_deref().map(str::to_string),
                         }
                     });
                     group.locs.push((issue.line, issue.col));

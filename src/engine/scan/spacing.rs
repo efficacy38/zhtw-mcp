@@ -242,7 +242,7 @@ mod tests {
             })
             .map(|i| {
                 (
-                    i.context.unwrap_or_default(),
+                    i.context.as_deref().unwrap_or("").to_string(),
                     i.suggestions.first().cloned().unwrap_or_default(),
                 )
             })

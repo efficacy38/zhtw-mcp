@@ -52,16 +52,18 @@ impl CharTrie {
     }
 
     /// Insert a word with its freq weight and rule_from flag.
-    fn insert(&mut self, word: &str, freq: u32, is_rule_from: bool) {
+    /// Returns `true` if this is a new word (freq was 0 before).
+    fn insert(&mut self, word: &str, freq: u32, is_rule_from: bool) -> bool {
         let mut chars = word.chars();
         let first = match chars.next() {
             Some(c) => c,
-            None => return,
+            None => return false,
         };
         let mut node = self.root.entry(first).or_default();
         for ch in chars {
             node = node.children.entry(ch).or_default();
         }
+        let is_new = node.freq == 0;
         // For freq: keep the higher value (stop words override rule terms).
         if freq > node.freq {
             node.freq = freq;
@@ -69,6 +71,7 @@ impl CharTrie {
         if is_rule_from {
             node.is_rule_from = true;
         }
+        is_new
     }
 
     /// Walk the trie from a position in the char array, yielding all matches.
@@ -119,6 +122,82 @@ impl CharTrie {
             _ => 0,
         }
     }
+
+    /// Insert a word (higher freq wins), returning true if new.
+    /// Also updates max_char_len if this word is longer than current max.
+    fn insert_tracking(
+        &mut self,
+        word: &str,
+        freq: u32,
+        is_rule_from: bool,
+        max_char_len: &mut usize,
+    ) -> bool {
+        let char_len = word.chars().count();
+        if char_len > *max_char_len {
+            *max_char_len = char_len;
+        }
+        self.insert(word, freq, is_rule_from)
+    }
+
+    /// Insert only if the word is not already in the trie (freq == 0).
+    /// Returns true if the word was newly inserted.
+    fn insert_if_absent(&mut self, word: &str, freq: u32, max_char_len: &mut usize) -> bool {
+        if word.is_empty() {
+            return false;
+        }
+        // Check if already present by walking the trie.
+        let existing = self.get_freq_internal(word);
+        if existing > 0 {
+            return false;
+        }
+        let char_len = word.chars().count();
+        if char_len > *max_char_len {
+            *max_char_len = char_len;
+        }
+        self.insert(word, freq, false);
+        true
+    }
+
+    /// Internal freq lookup (not gated by #[cfg(test)]).
+    fn get_freq_internal(&self, word: &str) -> u32 {
+        let mut chars = word.chars();
+        let first = match chars.next() {
+            Some(c) => c,
+            None => return 0,
+        };
+        let Some(mut node) = self.root.get(&first) else {
+            return 0;
+        };
+        for ch in chars {
+            match node.children.get(&ch) {
+                Some(child) => node = child,
+                None => return 0,
+            }
+        }
+        node.freq
+    }
+
+    /// Look up a word's freq weight.  Returns `Some(freq)` if found, `None` otherwise.
+    #[cfg(test)]
+    fn get_freq(&self, word: &str) -> Option<u32> {
+        let mut chars = word.chars();
+        let first = chars.next()?;
+        let mut node = self.root.get(&first)?;
+        for ch in chars {
+            node = node.children.get(&ch)?;
+        }
+        if node.freq > 0 {
+            Some(node.freq)
+        } else {
+            None
+        }
+    }
+
+    /// Whether a word exists in the trie (freq > 0).
+    #[cfg(test)]
+    fn contains(&self, word: &str) -> bool {
+        self.get_freq(word).is_some()
+    }
 }
 
 /// A lightweight MMSEG word segmenter.
@@ -126,8 +205,10 @@ impl CharTrie {
 /// The dictionary maps words to frequency weights: stop words get 10 (higher
 /// morphemic freedom for Rule 4 tie-breaking), rule vocabulary gets 1.
 pub struct Segmenter {
-    dict: HashMap<String, u32>,
-    /// Character trie mirroring `dict` for O(L) forward walks.
+    /// Number of entries in the dictionary.  Computed at construction time
+    /// by counting new insertions into the CharTrie.
+    word_count: usize,
+    /// Character trie built from dictionary entries for O(L) forward walks.
     trie: CharTrie,
     /// Maximum word length (in chars) across all dictionary entries.
     /// Computed at construction time so long entries (e.g. country names)
@@ -161,9 +242,12 @@ pub struct Token {
 /// crossing word.  Both start and end boundary checks are answered
 /// directly from the bitmap -- no per-hit segmenter call needed.
 pub struct BoundaryBitmap {
-    /// `crossed[pos] == true` means some non-rule dict word straddles
-    /// byte position `pos`.
-    crossed: Vec<bool>,
+    /// Bit-packed crossed flags: bit `pos` is set when some non-rule dict
+    /// word straddles byte position `pos`.  Stored as Vec<u64> for 8x
+    /// memory reduction vs Vec<bool> and better cache utilization.
+    crossed: Vec<u64>,
+    /// Number of byte positions covered (= text.len() + 1).
+    len: usize,
     /// For crossed positions: minimum start byte of any crossing word.
     /// Used for exact end-boundary resolution without segmenter fallback.
     /// `u32::MAX` sentinel means "not crossed".
@@ -178,6 +262,7 @@ impl BoundaryBitmap {
     pub fn empty() -> Self {
         Self {
             crossed: Vec::new(),
+            len: 0,
             min_cross_start: Vec::new(),
         }
     }
@@ -185,14 +270,22 @@ impl BoundaryBitmap {
     /// Whether the bitmap is empty (no precomputation done).
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.crossed.is_empty()
+        self.len == 0
+    }
+
+    /// Test the crossed bit at position `pos`.
+    #[inline]
+    fn is_crossed(&self, pos: usize) -> bool {
+        let word = pos / 64;
+        let bit = pos % 64;
+        word < self.crossed.len() && (self.crossed[word] & (1u64 << bit)) != 0
     }
 
     /// Whether any non-rule dictionary word crosses the start position.
     /// This is an exact answer -- no segmenter fallback needed.
     #[inline]
     pub fn start_straddles(&self, pos: usize) -> bool {
-        pos < self.crossed.len() && self.crossed[pos]
+        pos < self.len && self.is_crossed(pos)
     }
 
     /// Whether any non-rule dictionary word crosses the end position
@@ -205,7 +298,7 @@ impl BoundaryBitmap {
     /// match_start, they're inside the match (different segmentation).
     #[inline]
     pub fn end_straddles(&self, end: usize, match_start: usize) -> bool {
-        if end >= self.crossed.len() || !self.crossed[end] {
+        if end >= self.len || !self.is_crossed(end) {
             return false;
         }
         (self.min_cross_start[end] as usize) <= match_start
@@ -223,22 +316,20 @@ const MAX_WORD_LEN_LIMIT: usize = 32;
 impl Segmenter {
     /// Build a segmenter from an iterator of dictionary words (all get freq=1).
     pub fn new(words: impl IntoIterator<Item = String>) -> Self {
-        let dict: HashMap<String, u32> = words
-            .into_iter()
-            .filter(|w| !w.is_empty())
-            .map(|w| (w, 1u32))
-            .collect();
-        let max_word_len = dict.keys().map(|w| w.chars().count()).max().unwrap_or(1);
+        let mut trie = CharTrie::new();
+        let mut word_count: usize = 0;
+        let mut max_word_len: usize = 1;
+        for word in words {
+            if !word.is_empty() && trie.insert_tracking(&word, 1, false, &mut max_word_len) {
+                word_count += 1;
+            }
+        }
         assert!(
             max_word_len <= MAX_WORD_LEN_LIMIT,
             "max_word_len ({max_word_len}) exceeds stack buffer limit ({MAX_WORD_LEN_LIMIT})"
         );
-        let mut trie = CharTrie::new();
-        for (word, &freq) in &dict {
-            trie.insert(word, freq, false);
-        }
         Self {
-            dict,
+            word_count,
             trie,
             max_word_len,
             rule_from_terms: HashSet::new(),
@@ -251,63 +342,66 @@ impl Segmenter {
     /// entries from each rule (freq=1), then adds the curated stop-word list
     /// (freq=10, overriding any lower value from rules).
     pub fn from_rules(rules: &[crate::rules::ruleset::SpellingRule]) -> Self {
-        let mut dict: HashMap<String, u32> = HashMap::new();
+        let mut trie = CharTrie::new();
         let mut rule_from_terms: HashSet<String> = HashSet::new();
+        let mut word_count: usize = 0;
+        let mut max_word_len: usize = 1;
+
+        // Helper: insert into trie, track word_count and max_word_len.
+        let mut insert = |word: &str, freq: u32, is_rule_from: bool| {
+            if !word.is_empty() && trie.insert_tracking(word, freq, is_rule_from, &mut max_word_len)
+            {
+                word_count += 1;
+            }
+        };
 
         // Extract terms from rules (from, to, and context_clues).
         for rule in rules {
             if !rule.disabled {
                 rule_from_terms.insert(rule.from.clone());
-                dict.entry(rule.from.clone()).or_insert(1);
+                insert(&rule.from, 1, true);
                 for to in &rule.to {
                     if !to.is_empty() {
-                        dict.entry(to.clone()).or_insert(1);
+                        insert(to, 1, false);
                     }
                 }
-                // Context clue words must also be in the dictionary so the
-                // segmenter can recognise them as tokens.
                 if let Some(clues) = &rule.context_clues {
                     for clue in clues {
-                        if !clue.is_empty() {
-                            dict.entry(clue.clone()).or_insert(1);
-                        }
+                        insert(clue, 1, false);
                     }
                 }
                 if let Some(neg_clues) = &rule.negative_context_clues {
                     for clue in neg_clues {
-                        if !clue.is_empty() {
-                            dict.entry(clue.clone()).or_insert(1);
-                        }
+                        insert(clue, 1, false);
                     }
                 }
             }
         }
 
         // General vocabulary gets freq=5 (between rule terms and stop words).
-        // Provides multi-char candidates for MMSEG Rule 1, reducing single-char
-        // fallback on natural prose and improving context clue recall.
+        // Use insert_if_absent: don't overwrite rule terms (freq=1) that are
+        // already present — preserves the original or_insert semantics.
         for w in GENERAL_VOCAB {
-            dict.entry(w.to_string()).or_insert(5);
+            if trie.insert_if_absent(w, 5, &mut max_word_len) {
+                word_count += 1;
+            }
         }
 
         // Stop words get freq=10 (favours common function words at Rule 4
-        // tie-breaks).  Use insert (not or_insert) so stop words always win
-        // over the freq=1 default even if they appear as rule terms.
+        // tie-breaks).  Use insert_tracking: higher freq always wins, so
+        // stop words override freq=1 from rules even if already present.
         for w in STOP_WORDS {
-            dict.insert(w.to_string(), 10);
+            if trie.insert_tracking(w, 10, false, &mut max_word_len) {
+                word_count += 1;
+            }
         }
 
-        let max_word_len = dict.keys().map(|w| w.chars().count()).max().unwrap_or(1);
         assert!(
             max_word_len <= MAX_WORD_LEN_LIMIT,
             "max_word_len ({max_word_len}) exceeds stack buffer limit ({MAX_WORD_LEN_LIMIT})"
         );
-        let mut trie = CharTrie::new();
-        for (word, &freq) in &dict {
-            trie.insert(word, freq, rule_from_terms.contains(word));
-        }
         Self {
-            dict,
+            word_count,
             trie,
             max_word_len,
             rule_from_terms,
@@ -473,7 +567,7 @@ impl Segmenter {
 
     /// Number of entries in the dictionary.
     pub fn dict_size(&self) -> usize {
-        self.dict.len()
+        self.word_count
     }
 
     /// Check if a known dictionary word straddles the given byte boundary.
@@ -576,7 +670,8 @@ impl Segmenter {
             "BoundaryBitmap uses u32 for byte positions; text exceeds 4GB"
         );
         let cap = text.len() + 1;
-        let mut crossed = vec![false; cap];
+        let words = cap.div_ceil(64);
+        let mut crossed = vec![0u64; words];
         let mut min_cross_start = vec![u32::MAX; cap];
 
         let n = chars.len();
@@ -602,7 +697,8 @@ impl Segmenter {
                             continue;
                         }
                         let pos = chars[j].0;
-                        crossed[pos] = true;
+                        let w = pos / 64;
+                        crossed[w] |= 1u64 << (pos % 64);
                         if sb < min_cross_start[pos] {
                             min_cross_start[pos] = sb;
                         }
@@ -612,6 +708,7 @@ impl Segmenter {
 
         BoundaryBitmap {
             crossed,
+            len: cap,
             min_cross_start,
         }
     }
@@ -1000,9 +1097,9 @@ mod tests {
         }];
         let seg = Segmenter::from_rules(&rules);
         // Dict should contain "軟件", "軟體", and all stop words.
-        assert!(seg.dict.contains_key("軟件"));
-        assert!(seg.dict.contains_key("軟體"));
-        assert!(seg.dict.contains_key("的"));
+        assert!(seg.trie.contains("軟件"));
+        assert!(seg.trie.contains("軟體"));
+        assert!(seg.trie.contains("的"));
     }
 
     #[test]
@@ -1136,9 +1233,9 @@ mod tests {
         }];
         let seg = Segmenter::from_rules(&rules);
         // Stop word "的" must have freq=10.
-        assert_eq!(seg.dict.get("的"), Some(&10));
+        assert_eq!(seg.trie.get_freq("的"), Some(10));
         // Rule term "軟件" must have freq=1.
-        assert_eq!(seg.dict.get("軟件"), Some(&1));
+        assert_eq!(seg.trie.get_freq("軟件"), Some(1));
     }
 
     /// MMSEG deterministic tiebreaker: leftmost-longest resolves final ties.
@@ -1243,12 +1340,12 @@ mod tests {
         }];
         let seg = Segmenter::from_rules(&rules);
         // General vocab words should be present.
-        assert!(seg.dict.contains_key("提供"));
-        assert!(seg.dict.contains_key("目前"));
-        assert!(seg.dict.contains_key("重要"));
-        assert!(seg.dict.contains_key("例如"));
+        assert!(seg.trie.contains("提供"));
+        assert!(seg.trie.contains("目前"));
+        assert!(seg.trie.contains("重要"));
+        assert!(seg.trie.contains("例如"));
         // General vocab has freq=5 (between rule=1 and stop=10).
-        assert_eq!(seg.dict.get("提供"), Some(&5));
+        assert_eq!(seg.trie.get_freq("提供"), Some(5));
     }
 
     /// Natural prose context clue recall: general vocab provides multi-char
@@ -1328,7 +1425,7 @@ mod tests {
         let seg = Segmenter::from_rules(&rules);
         // Rule term "設計" inserted first with freq=1; general vocab uses
         // or_insert(5) which does NOT overwrite the existing freq=1.
-        assert_eq!(seg.dict.get("設計"), Some(&1));
+        assert_eq!(seg.trie.get_freq("設計"), Some(1));
     }
 
     #[test]

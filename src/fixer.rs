@@ -19,7 +19,8 @@
 // Fixes are applied in a single forward pass (ascending offset order).
 
 #[cfg(test)]
-use crate::engine::scan::surrounding_window;
+use std::sync::Arc;
+
 use crate::engine::segment::Segmenter;
 use crate::rules::ruleset::{Issue, IssueType, Tier2Outcome};
 
@@ -403,6 +404,7 @@ pub fn suppress_convergent_issues(issues: &mut Vec<Issue>, applied_fixes: &[Appl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::scan::surrounding_window;
     use crate::rules::ruleset::{IssueType, Severity};
 
     fn make_issue(offset: usize, found: &str, suggestions: Vec<&str>) -> Issue {
@@ -946,7 +948,7 @@ mod tests {
         // lexical_safe because the empty vec means no ambiguity.
         let text = "這個軟件很好用";
         let mut issue = make_issue(6, "軟件", vec!["軟體"]);
-        issue.context_clues = Some(vec![]);
+        issue.context_clues = Some(Arc::from(Vec::<String>::new()));
         let result = apply_fixes(text, &[issue], FixMode::LexicalSafe, &[]);
         assert_eq!(result.text, "這個軟體很好用");
         assert_eq!(result.applied, 1);

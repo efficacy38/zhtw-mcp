@@ -3,6 +3,8 @@
 // One tool exposed to the MCP client:
 //   zhtw — unified lint / fix / gate for Traditional Chinese (Taiwan) text
 
+use std::sync::Arc;
+
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -590,10 +592,10 @@ impl Server {
                     term: String,
                     orig_offset: usize,
                     length: usize,
-                    english: Option<String>,
+                    english: Option<Arc<str>>,
                     severity: Severity,
                     anchor_match: Option<bool>,
-                    context: Option<String>,
+                    context: Option<Arc<str>>,
                     suggestions: Vec<String>,
                 }
 
@@ -1976,8 +1978,8 @@ fn build_compact_groups(issues: &[Issue], explain: bool, include_stats: bool) ->
             suggestions: issue.suggestions.to_vec(),
             rule_type: rt.to_string(),
             severity: issue.severity.name().to_string(),
-            context: issue.context.clone(),
-            english: issue.english.clone(),
+            context: issue.context.as_deref().map(str::to_string),
+            english: issue.english.as_deref().map(str::to_string),
             explanation: if explain {
                 build_explanation(issue)
             } else {
@@ -1985,7 +1987,7 @@ fn build_compact_groups(issues: &[Issue], explain: bool, include_stats: bool) ->
             },
             anchor_provenance: if explain && issue.anchor_match.is_some() {
                 Some(AnchorProvenanceOwned {
-                    anchor_en: issue.english.clone(),
+                    anchor_en: issue.english.as_deref().map(str::to_string),
                     anchor_match: issue.anchor_match,
                 })
             } else {

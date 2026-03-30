@@ -92,6 +92,16 @@ impl Scanner {
                     clue_index_built = true;
                 }
 
+                // Document-level fast path: if the clue index is empty and
+                // this rule requires positive clue matches, it will always
+                // be rejected.  Skip MatchContext construction entirely.
+                if clue_index_built
+                    && clue_buf.is_empty()
+                    && self.spelling_db.rule_pos_clue_ids[idx].is_some()
+                {
+                    continue;
+                }
+
                 if class == CLASS_TRULY_SIMPLE {
                     // Inline fast path: no MatchContext, no function call.
                     let start = $start;
@@ -116,18 +126,39 @@ impl Scanner {
                             || boundary_bitmap.end_straddles(end, start)
                     };
                     if !straddle {
-                        let mut issue = Issue::new(
+                        issues.push(Issue::deferred_spelling(
                             start,
                             end - start,
-                            "",
-                            Vec::new(),
                             IssueType::from(compiled.rule_type),
                             compiled.rule_type.default_severity(),
-                        );
-                        issue.spelling_rule_idx = Some(compiled.rule_idx);
+                            compiled.rule_idx,
+                        ));
+                    }
+                } else if class == CLASS_SIMPLE {
+                    // CLASS_SIMPLE: has superstring/exception/deletion but
+                    // no clue checks.  Avoids clue_index build and passes
+                    // empty clue slice to skip clue-related branches.
+                    let mut ctx = MatchContext {
+                        text,
+                        excluded,
+                        excl_cursor: &mut excl_cursor,
+                        cfg,
+                        zh_type,
+                        start: $start,
+                        end: $end,
+                        clue_index: &[],
+                        boundary_bitmap,
+                    };
+                    if let Some(issue) = rule_ir::eval_predicates(
+                        &self.spelling_db,
+                        compiled,
+                        &mut ctx,
+                        &self.segmenter,
+                    ) {
                         issues.push(issue);
                     }
                 } else {
+                    // CLASS_CLUED / CLASS_FULL: needs document-wide clue index.
                     let mut ctx = MatchContext {
                         text,
                         excluded,
@@ -467,6 +498,9 @@ mod tests {
         assert_eq!(scanner.spelling_db.rule_neg_clue_ids.len(), n);
         assert_eq!(scanner.spelling_db.rule_positional_clues.len(), n);
         assert_eq!(scanner.spelling_db.spelling_suggestions.len(), n);
+        assert_eq!(scanner.spelling_db.spelling_contexts.len(), n);
+        assert_eq!(scanner.spelling_db.spelling_english.len(), n);
+        assert_eq!(scanner.spelling_db.spelling_context_clues.len(), n);
     }
 
     #[test]

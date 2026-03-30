@@ -11,6 +11,8 @@
 // Issues scoring below the ambiguous threshold are suppressed (false positive).
 // Issues in the gray zone proceed to Tier 3 (LLM).
 
+use std::sync::Arc;
+
 use crate::rules::ruleset::{Issue, IssueType, Profile, Severity, Tier2Outcome};
 
 // ---------------------------------------------------------------------------
@@ -908,16 +910,11 @@ fn promote_suggestion(issue: &mut Issue, term: &str) {
 
 /// Append a disambiguation annotation to the issue's context field.
 fn annotate_issue(issue: &mut Issue, annotation: &str) {
-    match &mut issue.context {
-        Some(ctx) => {
-            ctx.push_str(" [");
-            ctx.push_str(annotation);
-            ctx.push(']');
-        }
-        None => {
-            issue.context = Some(format!("[{annotation}]"));
-        }
-    }
+    let new_ctx = match &issue.context {
+        Some(ctx) => format!("{ctx} [{annotation}]"),
+        None => format!("[{annotation}]"),
+    };
+    issue.context = Some(Arc::from(new_ctx));
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,7 +1127,7 @@ mod tests {
             Severity::Warning,
         );
         if let Some(e) = english {
-            issue.english = Some(e.to_string());
+            issue.english = Some(Arc::from(e));
         }
         issue
     }
@@ -1184,11 +1181,11 @@ mod tests {
     #[test]
     fn context_clues_boost_score() {
         let mut issue = make_issue("進程", vec!["行程"], Some("process"));
-        issue.context_clues = Some(vec![
+        issue.context_clues = Some(Arc::from(vec![
             "排程".to_string(),
             "PID".to_string(),
             "背景".to_string(),
-        ]);
+        ]));
         let cfg = DisambigConfig::default();
         // Two clues match ("排程", "PID"):
         let result = score_issue(&issue, "查看PID排程器的進程", &cfg);

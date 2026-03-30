@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 /// Linting profile controlling zh-TW norm enforcement strictness.
@@ -480,22 +482,25 @@ pub struct Issue {
     pub found: String,
     /// Suggested replacements.  Arc avoids per-issue allocation during
     /// inflate — most issues share suggestions with their source rule.
-    pub suggestions: std::sync::Arc<[String]>,
+    pub suggestions: Arc<[String]>,
     /// Classification of the triggering rule.
     pub rule_type: IssueType,
     /// Severity level.
     pub severity: Severity,
     /// Usage context from the triggering rule, helping the AI agent
     /// choose the right suggestion or understand the nuance.
+    /// Arc-interned during inflation to avoid per-issue String clones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>,
+    pub context: Option<Arc<str>>,
     /// English original term — unambiguous anchor for cross-strait terms.
+    /// Arc-interned during inflation to avoid per-issue String clones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub english: Option<String>,
+    pub english: Option<Arc<str>>,
     /// Context clues from the triggering rule. Fixer uses these with a
     /// segmenter to decide whether an ambiguous term should be corrected.
+    /// Arc-interned during inflation to avoid per-issue Vec clones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_clues: Option<Vec<String>>,
+    pub context_clues: Option<Arc<[String]>>,
     /// Calibration result from translation verification.
     /// `Some(true)`: anchor found in translation (confirmed).
     /// `Some(false)`: anchor absent in translation (unconfirmed).
@@ -551,21 +556,55 @@ impl Issue {
         }
     }
 
+    /// Lightweight constructor for deferred spelling issues.
+    ///
+    /// Skips the `found` and `suggestions` allocations — those are filled
+    /// during inflation after overlap resolution.  Uses a static empty
+    /// Arc to avoid per-issue heap allocation.
+    pub(crate) fn deferred_spelling(
+        offset: usize,
+        length: usize,
+        rule_type: IssueType,
+        severity: Severity,
+        rule_idx: usize,
+    ) -> Self {
+        static EMPTY_SUGGESTIONS: std::sync::OnceLock<Arc<[String]>> = std::sync::OnceLock::new();
+        Self {
+            offset,
+            length,
+            line: 0,
+            col: 0,
+            found: String::new(),
+            suggestions: EMPTY_SUGGESTIONS
+                .get_or_init(|| Arc::from(Vec::<String>::new()))
+                .clone(),
+            rule_type,
+            severity,
+            context: None,
+            english: None,
+            context_clues: None,
+            anchor_match: None,
+            tier2_outcome: Tier2Outcome::NotEligible,
+            llm_judged: false,
+            spelling_rule_idx: Some(rule_idx),
+        }
+    }
+
     /// Builder: attach context string.
     pub fn with_context(mut self, ctx: impl Into<String>) -> Self {
-        self.context = Some(ctx.into());
+        self.context = Some(Arc::from(ctx.into()));
         self
     }
 
     /// Builder: attach english anchor.
     pub fn with_english(mut self, eng: impl Into<String>) -> Self {
-        self.english = Some(eng.into());
+        self.english = Some(Arc::from(eng.into()));
         self
     }
 
     /// Builder: attach context clues.
     pub fn with_context_clues(mut self, clues: Vec<String>) -> Self {
-        self.context_clues = Some(clues);
+        self.context_clues = Some(Arc::from(clues));
         self
     }
 }

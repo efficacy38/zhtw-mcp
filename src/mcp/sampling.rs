@@ -602,7 +602,7 @@ fn build_judgment_key(
         normalized_context: normalize_context_for_cache(context_window),
         ambiguous_term: issue.found.clone(),
         candidate_set_hash: hash_candidate_set(&issue.suggestions),
-        english_anchor: issue.english.clone().unwrap_or_default(),
+        english_anchor: issue.english.as_deref().unwrap_or("").to_string(),
     }
 }
 
@@ -742,12 +742,10 @@ pub(crate) fn refine_issues_with_sampling(
             }
             None => {
                 // Timeout or error: annotate context but keep original severity.
-                let ctx = issue.context.take().unwrap_or_default();
-                issue.context = Some(format!(
-                    "{}{}sampling timeout/unavailable",
-                    ctx,
-                    if ctx.is_empty() { "" } else { "; " }
-                ));
+                let ctx = issue.context.take();
+                let ctx_str = ctx.as_deref().unwrap_or("");
+                let sep = if ctx_str.is_empty() { "" } else { "; " };
+                issue.context = Some(format!("{ctx_str}{sep}sampling timeout/unavailable").into());
             }
         }
     }
@@ -768,20 +766,22 @@ fn apply_disambiguation(issue: &mut Issue, matched_term: &Option<String>, detail
             sugs.swap(0, pos);
             issue.suggestions = sugs.into();
         }
-        issue.context = Some(format!("LLM disambiguation: '{term}' ({detail})",));
+        issue.context = Some(format!("LLM disambiguation: '{term}' ({detail})").into());
     } else {
         issue.severity = crate::rules::ruleset::Severity::Info;
-        issue.context = Some(format!("LLM disambiguation: rejected ({detail})"));
+        issue.context = Some(format!("LLM disambiguation: rejected ({detail})").into());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::rules::ruleset::{IssueType, Severity};
     use std::io::Cursor;
     use std::sync::mpsc;
+    use std::sync::Arc;
     use std::sync::Mutex;
+
+    use super::*;
+    use crate::rules::ruleset::{IssueType, Severity};
 
     /// Serializes tests that depend on the global SAMPLING_ID counter.
     /// Prevents race conditions where concurrent tests increment the counter
@@ -818,7 +818,7 @@ mod tests {
     #[test]
     fn eligible_with_context_clues() {
         let mut issue = make_confusable_issue("程序", vec!["程式"], "program");
-        issue.context_clues = Some(vec!["編寫".into(), "執行".into()]);
+        issue.context_clues = Some(Arc::from(vec!["編寫".into(), "執行".into()]));
         assert!(is_sampling_eligible(&issue));
     }
 

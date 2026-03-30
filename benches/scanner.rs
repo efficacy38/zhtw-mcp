@@ -367,8 +367,8 @@ fn bench_post_scan_transforms(c: &mut Criterion) {
                     );
                     issue.line = i + 1;
                     issue.col = 1;
-                    issue.context = Some("test context".to_string());
-                    issue.english = Some("term".to_string());
+                    issue.context = Some("test context".into());
+                    issue.english = Some("term".into());
                     issue
                 }
             })

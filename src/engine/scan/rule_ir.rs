@@ -12,6 +12,7 @@
 // and are explicitly excluded.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use daachorse::{CharwiseDoubleArrayAhoCorasickBuilder, MatchKind as DaacMatchKind};
@@ -105,10 +106,6 @@ pub struct CompiledRule {
     pub predicates: Vec<MatchPredicate>,
     /// Cached rule type (avoids pointer chase through spelling_rules).
     pub rule_type: RuleType,
-    /// Cached filter flags (avoids pointer chase through rule_filter_flags).
-    /// Used by eval_simple; retained for test assertions after 50.4 consolidation.
-    #[allow(dead_code)]
-    pub filter_flags: u8,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +135,13 @@ pub struct CompiledSpellingDb {
     pub spelling_rules: Vec<SpellingRule>,
     /// Precomputed suggestions per rule.  Arc avoids per-issue clone
     /// during inflation — only a reference count bump per survivor.
-    pub spelling_suggestions: Vec<std::sync::Arc<[String]>>,
+    pub spelling_suggestions: Vec<Arc<[String]>>,
+    /// Pre-interned context strings per rule.  Arc bump during inflation.
+    pub spelling_contexts: Vec<Option<Arc<str>>>,
+    /// Pre-interned english anchors per rule.  Arc bump during inflation.
+    pub spelling_english: Vec<Option<Arc<str>>>,
+    /// Pre-interned context clues per rule.  Arc bump during inflation.
+    pub spelling_context_clues: Vec<Option<Arc<[String]>>>,
     /// Per-rule positive clue IDs into the clue AC pattern list.
     #[allow(dead_code)]
     pub rule_pos_clue_ids: Vec<Option<Vec<u16>>>,
@@ -149,12 +152,36 @@ pub struct CompiledSpellingDb {
     #[allow(dead_code)]
     pub rule_positional_clues: Vec<Option<Vec<PositionalClue>>>,
     /// Per-rule bitflags gating optional filter stages (spelling::FILTER_*).
-    /// Runtime-dead after compilation (cached in CompiledRule::filter_flags);
+    /// Used at compilation time to derive rule_classes;
     /// kept for test inspection.
     #[allow(dead_code)]
     pub rule_filter_flags: Vec<u8>,
     /// Per-rule dispatch class for monomorphic fast paths (spelling::CLASS_*).
     pub rule_classes: Vec<u8>,
+}
+
+impl CompiledSpellingDb {
+    /// An empty database with no rules or automata.
+    /// Used as a fallback when compilation fails.
+    pub fn empty() -> Self {
+        Self {
+            ac_charwise: None,
+            ac_bytewise: None,
+            rules: Vec::new(),
+            clue_ac: None,
+            absorber_strings: Vec::new(),
+            spelling_rules: Vec::new(),
+            spelling_suggestions: Vec::new(),
+            spelling_contexts: Vec::new(),
+            spelling_english: Vec::new(),
+            spelling_context_clues: Vec::new(),
+            rule_pos_clue_ids: Vec::new(),
+            rule_neg_clue_ids: Vec::new(),
+            rule_positional_clues: Vec::new(),
+            rule_filter_flags: Vec::new(),
+            rule_classes: Vec::new(),
+        }
+    }
 }
 
 impl std::fmt::Debug for CompiledSpellingDb {
@@ -210,9 +237,11 @@ pub fn build_clue_index_into(
         ac.find_overlapping_iter(text)
             .map(|m| (m.start(), m.pattern().as_usize() as u16)),
     );
-    // Already sorted by start offset (AC iterates left-to-right),
-    // but sort to guarantee for binary search.
-    out.sort_unstable_by_key(|&(off, _)| off);
+    // AC iterates left-to-right, so hits are already offset-sorted.
+    debug_assert!(
+        out.windows(2).all(|w| w[0].0 <= w[1].0),
+        "clue AC hits not offset-sorted"
+    );
 }
 
 /// Look up clue hits within a byte window from the pre-computed index.
@@ -240,7 +269,7 @@ pub fn lookup_clues_in_window(
         }
 
         if let Some(pos_ids) = pos_ids {
-            if let Some(pos) = pos_ids.iter().position(|&id| id == clue_id) {
+            if let Ok(pos) = pos_ids.binary_search(&clue_id) {
                 let bit = 1u32 << pos;
                 if pos_seen & bit == 0 {
                     pos_seen |= bit;
@@ -250,7 +279,7 @@ pub fn lookup_clues_in_window(
         }
 
         if let Some(neg_ids) = neg_ids {
-            if neg_ids.contains(&clue_id) {
+            if neg_ids.binary_search(&clue_id).is_ok() {
                 return (pos_found, true);
             }
         }
@@ -368,149 +397,13 @@ pub fn compile_rule_predicates(
 }
 
 // ---------------------------------------------------------------------------
-// eval_simple() -- fast path for CLASS_SIMPLE (no clues, no positional)
-// ---------------------------------------------------------------------------
-
-/// Simplified eval path for CLASS_SIMPLE rules (no clues, no positional).
-/// Consolidated into eval_predicates (50.4) -- kept for potential restoration
-/// if profiling shows the predicate-chain overhead matters for CLASS_SIMPLE.
-#[inline]
-#[allow(dead_code)]
-pub fn eval_simple(
-    db: &CompiledSpellingDb,
-    rule: &CompiledRule,
-    ctx: &mut MatchContext<'_>,
-    segmenter: &super::super::segment::Segmenter,
-) -> Option<Issue> {
-    let flags = rule.filter_flags;
-    let mut end = ctx.end;
-
-    // Config gates (using cached rule_type, no pointer chase).
-    match rule.rule_type {
-        RuleType::Variant => {
-            if !ctx.cfg.variant_normalization || ctx.zh_type == ChineseType::Simplified {
-                return None;
-            }
-        }
-        RuleType::AiFiller => {
-            if !ctx.cfg.ai_filler_detection {
-                return None;
-            }
-        }
-        RuleType::PoliticalColoring => {
-            let sr = &db.spelling_rules[rule.rule_idx];
-            if !ctx.cfg.political_stance.allows_rule(&sr.from) {
-                return None;
-            }
-        }
-        _ => {}
-    }
-
-    // Exclusion check (amortized O(1)).
-    while *ctx.excl_cursor < ctx.excluded.len() && ctx.excluded[*ctx.excl_cursor].end <= ctx.start {
-        *ctx.excl_cursor += 1;
-    }
-    if *ctx.excl_cursor < ctx.excluded.len()
-        && ctx.excluded[*ctx.excl_cursor].start < end
-        && ctx.start < ctx.excluded[*ctx.excl_cursor].end
-    {
-        return None;
-    }
-
-    // Superstring absorption & Exception phrases (using precomputed predicates).
-    if flags & (spelling::FILTER_HAS_SUPERSTRING | spelling::FILTER_HAS_EXCEPTIONS) != 0 {
-        for pred in &rule.predicates {
-            match pred {
-                MatchPredicate::RejectIfSuperstring { forms } => {
-                    let absorbed = forms.iter().any(|(correct, offsets)| {
-                        offsets.iter().any(|&wrong_pos| {
-                            if let Some(correct_start) = ctx.start.checked_sub(wrong_pos) {
-                                let correct_end = correct_start
-                                    .saturating_add(correct.len())
-                                    .min(ctx.text.len());
-                                ctx.text.get(correct_start..correct_end) == Some(correct.as_str())
-                            } else {
-                                false
-                            }
-                        })
-                    });
-                    if absorbed {
-                        return None;
-                    }
-                }
-                MatchPredicate::RejectIfInExceptionPhrase { exceptions } => {
-                    let in_exception = exceptions.iter().any(|(exc, offsets)| {
-                        offsets.iter().any(|&pos| {
-                            if let Some(exc_start) = ctx.start.checked_sub(pos) {
-                                let exc_end =
-                                    exc_start.saturating_add(exc.len()).min(ctx.text.len());
-                                ctx.text.get(exc_start..exc_end) == Some(exc.as_str())
-                            } else {
-                                false
-                            }
-                        })
-                    });
-                    if in_exception {
-                        return None;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Word boundary straddle.
-    let straddles = if ctx.boundary_bitmap.is_empty() {
-        segmenter.match_straddles_word_boundary(ctx.text, ctx.start, end)
-    } else {
-        ctx.boundary_bitmap.start_straddles(ctx.start)
-            || ctx.boundary_bitmap.end_straddles(end, ctx.start)
-    };
-    if straddles {
-        return None;
-    }
-
-    // Deletion span extension (cursor-aware: excl_cursor is already positioned
-    // past the match start from the earlier exclusion check).
-    if flags & spelling::FILTER_IS_DELETION != 0 && end <= ctx.text.len() {
-        if let Some(c) = ctx.text.get(end..).and_then(|s| s.chars().next()) {
-            if matches!(c, '\u{FF0C}' | '\u{FF1A}') {
-                let extended = end.saturating_add(c.len_utf8());
-                if extended <= ctx.text.len() {
-                    // Use cursor: the exclusion zone at excl_cursor (if any)
-                    // starts at or after ctx.start.  If it overlaps [end, extended),
-                    // the extension is inside an excluded range.
-                    let excluded_overlap = *ctx.excl_cursor < ctx.excluded.len()
-                        && ctx.excluded[*ctx.excl_cursor].start < extended
-                        && end < ctx.excluded[*ctx.excl_cursor].end;
-                    if !excluded_overlap {
-                        end = extended;
-                    }
-                }
-            }
-        }
-    }
-
-    // Emit lightweight issue using cached rule_type (no sr dereference).
-    let mut issue = Issue::new(
-        ctx.start,
-        end - ctx.start,
-        "",
-        Vec::new(),
-        IssueType::from(rule.rule_type),
-        rule.rule_type.default_severity(),
-    );
-    issue.spelling_rule_idx = Some(rule.rule_idx);
-    Some(issue)
-}
-
-// ---------------------------------------------------------------------------
 // eval_predicates() -- generic path for CLASS_CLUED and CLASS_FULL
 // ---------------------------------------------------------------------------
 
 /// Evaluate a compiled rule's predicate chain against a match context.
 ///
 /// Returns Some(Issue) when all predicates pass, None on first rejection.
+#[inline]
 pub fn eval_predicates(
     db: &CompiledSpellingDb,
     rule: &CompiledRule,
@@ -652,18 +545,13 @@ pub fn eval_predicates(
         }
     }
 
-    // Emit lightweight issue (deferred: found/suggestions/context/english/
-    // context_clues are empty and will be inflated after overlap resolution).
-    let mut issue = Issue::new(
+    Some(Issue::deferred_spelling(
         ctx.start,
         end - ctx.start,
-        "",
-        Vec::new(),
         IssueType::from(sr.rule_type),
         sr.rule_type.default_severity(),
-    );
-    issue.spelling_rule_idx = Some(rule.rule_idx);
-    Some(issue)
+        rule.rule_idx,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +565,23 @@ pub fn eval_predicates(
 /// fills them in from the compiled DB and the original text.
 /// Non-spelling issues are left untouched.
 pub fn inflate_spelling_issues(db: &CompiledSpellingDb, text: &str, issues: &mut [Issue]) {
+    inflate_spelling_issues_inner(db, text, issues, false);
+}
+
+/// Like `inflate_spelling_issues` but skips context/english/context_clues
+/// when `offset_only` is true (MCP compact output path).  Saves ~3 Arc
+/// clones per surviving issue.
+pub fn inflate_spelling_issues_compact(db: &CompiledSpellingDb, text: &str, issues: &mut [Issue]) {
+    inflate_spelling_issues_inner(db, text, issues, true);
+}
+
+#[inline]
+fn inflate_spelling_issues_inner(
+    db: &CompiledSpellingDb,
+    text: &str,
+    issues: &mut [Issue],
+    offset_only: bool,
+) {
     for issue in issues.iter_mut() {
         if let Some(idx) = issue.spelling_rule_idx.take() {
             let sr = &db.spelling_rules[idx];
@@ -693,9 +598,13 @@ pub fn inflate_spelling_issues(db: &CompiledSpellingDb, text: &str, issues: &mut
                 issue.found = s.to_string();
             }
             issue.suggestions = db.spelling_suggestions[idx].clone();
-            issue.context.clone_from(&sr.context);
-            issue.english.clone_from(&sr.english);
-            issue.context_clues.clone_from(&sr.context_clues);
+            if !offset_only {
+                issue.context.clone_from(&db.spelling_contexts[idx]);
+                issue.english.clone_from(&db.spelling_english[idx]);
+                issue
+                    .context_clues
+                    .clone_from(&db.spelling_context_clues[idx]);
+            }
         }
     }
 }
@@ -709,6 +618,7 @@ pub fn inflate_spelling_issues(db: &CompiledSpellingDb, text: &str, issues: &mut
 /// When the target profile is known at Scanner construction time, rule types
 /// that the profile would always fast-reject can be excluded entirely from
 /// the DAAC, shrinking it by ~5% under the default profile.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ProfileFilter {
     pub exclude_variant: bool,
     pub exclude_ai_filler: bool,
@@ -725,7 +635,6 @@ impl ProfileFilter {
 
     /// Build a filter from a ProfileConfig: exclude rule types that the
     /// profile would always fast-reject in the scan loop.
-    #[allow(dead_code)]
     pub fn from_config(cfg: &crate::rules::ruleset::ProfileConfig) -> Self {
         Self {
             exclude_variant: !cfg.variant_normalization,
@@ -800,10 +709,25 @@ pub fn compile_spelling_rules_filtered(
         }
     }
 
-    let spelling_suggestions: Vec<std::sync::Arc<[String]>> = spelling_rules
+    let spelling_suggestions: Vec<Arc<[String]>> = spelling_rules
         .iter()
         .map(super::effective_suggestions)
-        .map(std::sync::Arc::from)
+        .map(Arc::from)
+        .collect();
+
+    let spelling_contexts: Vec<Option<Arc<str>>> = spelling_rules
+        .iter()
+        .map(|r| r.context.as_deref().map(Arc::from))
+        .collect();
+
+    let spelling_english: Vec<Option<Arc<str>>> = spelling_rules
+        .iter()
+        .map(|r| r.english.as_deref().map(Arc::from))
+        .collect();
+
+    let spelling_context_clues: Vec<Option<Arc<[String]>>> = spelling_rules
+        .iter()
+        .map(|r| r.context_clues.as_ref().map(|v| Arc::from(v.as_slice())))
         .collect();
 
     // Build clue AC: intern all unique clue strings, map per-rule clue
@@ -888,6 +812,14 @@ pub fn compile_spelling_rules_filtered(
     };
     truncate_clue_ids(&mut rule_pos_clue_ids, "positive");
     truncate_clue_ids(&mut rule_neg_clue_ids, "negative");
+
+    // Sort clue IDs for binary-search membership in lookup_clues_in_window.
+    for ids in rule_pos_clue_ids.iter_mut().flatten() {
+        ids.sort_unstable();
+    }
+    for ids in rule_neg_clue_ids.iter_mut().flatten() {
+        ids.sort_unstable();
+    }
 
     let rule_positional_clues: Vec<Option<Vec<PositionalClue>>> = spelling_rules
         .iter()
@@ -1071,7 +1003,6 @@ pub fn compile_spelling_rules_filtered(
                 rule_idx: i,
                 predicates,
                 rule_type: rule.rule_type,
-                filter_flags: rule_filter_flags[i],
             }
         })
         .collect();
@@ -1084,6 +1015,9 @@ pub fn compile_spelling_rules_filtered(
         absorber_strings,
         spelling_rules,
         spelling_suggestions,
+        spelling_contexts,
+        spelling_english,
+        spelling_context_clues,
         rule_pos_clue_ids,
         rule_neg_clue_ids,
         rule_positional_clues,
