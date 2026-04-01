@@ -10127,14 +10127,6 @@
       "english": "Benin"
     },
     {
-      "from": "貝葉斯",
-      "to": ["貝氏"],
-      "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "Bayes",
-      "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
-    },
-    {
       "from": "負一屏",
       "to": ["資訊主頁"],
       "type": "cross_strait",
