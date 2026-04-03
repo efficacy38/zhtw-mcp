@@ -165,7 +165,15 @@ impl Server {
             }
             "notifications/cancelled" => {
                 log::info!("{}", req.method);
-                Some(None)
+                if req.id.is_some() {
+                    Some(Some(JsonRpcResponse::error(
+                        req.id.clone(),
+                        INVALID_REQUEST,
+                        "notifications/cancelled must be sent as a notification (no id)".into(),
+                    )))
+                } else {
+                    Some(None)
+                }
             }
             "notifications/initialized" => {
                 log::info!("{}", req.method);

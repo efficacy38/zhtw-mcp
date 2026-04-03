@@ -1890,3 +1890,27 @@ fn e2e_invalid_profile_structured_error_data() {
     drop(stdin);
     let _ = child.wait();
 }
+
+#[test]
+fn e2e_notifications_cancelled_with_id_rejected() {
+    let (mut stdin, mut stdout, mut child, _tmp) = spawn_initialized_child();
+
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "id": 300
+        }),
+    );
+    assert_eq!(resp["id"], 300);
+    let err = resp
+        .get("error")
+        .expect("expected error for notifications/cancelled with id");
+    assert_eq!(err["code"].as_i64().unwrap(), -32600);
+
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success(), "child exited with {status}");
+}
