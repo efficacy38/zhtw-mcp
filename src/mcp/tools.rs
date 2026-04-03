@@ -163,9 +163,21 @@ impl Server {
                 }
                 Some(Some(self.handle_initialize(req)))
             }
-            "initialized" | "notifications/initialized" | "notifications/cancelled" => {
+            "notifications/cancelled" => {
                 log::info!("{}", req.method);
                 Some(None)
+            }
+            "notifications/initialized" => {
+                log::info!("{}", req.method);
+                if req.id.is_some() {
+                    Some(Some(JsonRpcResponse::error(
+                        req.id.clone(),
+                        INVALID_REQUEST,
+                        "notifications/initialized must be sent as a notification (no id)".into(),
+                    )))
+                } else {
+                    Some(None)
+                }
             }
             "shutdown" => {
                 log::info!("shutdown requested");
