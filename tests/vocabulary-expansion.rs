@@ -155,6 +155,18 @@ fn existing_it_rules_still_fire() {
     assert!(issues.iter().any(|i| i.found == "軟件"));
 }
 
+#[test]
+fn namespace_not_flagged() {
+    // 命名空間 is already standard TW usage; the incorrect cross_strait
+    // rule mapping it to 名稱空間/名字空間 was removed.
+    let scanner = full_scanner();
+    let issues = scanner.scan("使用命名空間隔離模組").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "命名空間"),
+        "命名空間 is correct TW and must NOT be flagged"
+    );
+}
+
 // Profile interaction: strict catches all + variants
 #[test]
 fn political_nouns_fire_under_all_profiles() {
@@ -183,6 +195,9 @@ fn context_clues_present_on_ambiguous_rules() {
         "函數", "分配", "刷新", "地址", "循環", "菜單", "證書",
         // Moderate-risk: domain-specific ambiguity
         "交互", "場景", "日誌", "嚮導", "語句", "社交",
+        // Newly contextualized IT/UI terms must also be clue-gated
+        "保存", "創建", "導航", "打開", "推遲", "搜索", "添加", "觸摸", "設置", "運行", "響應",
+        "高級",
     ];
     for term in &ambiguous_terms {
         let rule = ruleset
@@ -458,6 +473,105 @@ fn scanner_fires_shengming_in_programming_context() {
     assert!(
         issues.iter().any(|i| i.found == "聲明"),
         "聲明 must fire when programming context clue 變數 is nearby"
+    );
+}
+
+#[test]
+fn scanner_suppresses_baocun_near_negative_clue() {
+    // negative_context_clues: 食物, 文化, 遺產, 期限
+    let scanner = full_scanner();
+    let issues = scanner.scan("食物保存期限應標示清楚").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "保存"),
+        "保存 must not fire when negative clue '食物'/'期限' is nearby, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_suppresses_baocun_in_general_prose() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("警方保存證據以供調查").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "保存"),
+        "保存 must not fire without nearby IT clues, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_fires_baocun_in_it_context() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("請按下保存按鈕以保存檔案").issues;
+    assert!(
+        issues.iter().any(|i| i.found == "保存"),
+        "保存 must fire when IT clues are nearby"
+    );
+}
+
+#[test]
+fn scanner_suppresses_daohang_near_negative_clue() {
+    // negative_context_clues: 衛星, GPS, 汽車, 路線
+    let scanner = full_scanner();
+    let issues = scanner.scan("汽車導航系統使用衛星定位").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "導航"),
+        "導航 must not fire when negative clue '汽車'/'衛星' is nearby, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_suppresses_daohang_in_general_prose() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("這本書提供職涯導航與建議").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "導航"),
+        "導航 must not fire without nearby UI clues, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_fires_daohang_in_ui_context() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("網站導航選單需要重新設計").issues;
+    assert!(
+        issues.iter().any(|i| i.found == "導航"),
+        "導航 must fire when UI clues are nearby"
+    );
+}
+
+#[test]
+fn scanner_suppresses_yunxing_near_negative_clue() {
+    // negative_context_clues: 軌道, 列車, 班次
+    let scanner = full_scanner();
+    let issues = scanner.scan("列車運行時刻表已更新").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "運行"),
+        "運行 must not fire when negative clue '列車' is nearby, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_suppresses_yunxing_in_general_prose() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("這項計畫運行順利").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "運行"),
+        "運行 must not fire without nearby software clues, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scanner_fires_yunxing_in_software_context() {
+    let scanner = full_scanner();
+    let issues = scanner.scan("系統運行腳本後會重新啟動服務").issues;
+    assert!(
+        issues.iter().any(|i| i.found == "運行"),
+        "運行 must fire when software clues are nearby"
     );
 }
 
