@@ -681,7 +681,7 @@ def detect_conflicts(
 
     Errors (checks 1-13, 17-20):
     1.  Circular mappings (to of rule A is from of rule B)
-    2.  Empty to without english fallback
+    2.  Empty to without english fallback (+ ai_filler to:[] must not have english)
     3.  Variant rule invariants (single non-empty to)
     4.  Orphaned seealso references in context fields
     5.  AC compound decomposition conflicts (individual rules would produce
@@ -692,6 +692,7 @@ def detect_conflicts(
     8.  Compound suffix preservation (longer rules must not drop suffixes
         that the base rule would preserve)
     9.  context_clues / negative_context_clues field validation
+    9b. Negative clue self-suppression (neg clue == from term exactly)
     10. Self-referencing to (from value appears in its own to array)
     11. Annotation validation (@domain/@geo tag format and coverage)
     12. Redundant domain constraint (限X語境 duplicates @domain X)
@@ -757,10 +758,21 @@ def detect_conflicts(
 
     # 2. Empty to requires non-empty english (use English form convention).
     #    Exception: ai_filler rules use empty to intentionally (deletion).
+    #    2b. ai_filler rules with to:[] must NOT have english — the fallback
+    #        in effective_suggestions() would turn english into a suggestion,
+    #        breaking the "flag-only, no suggestion" semantics.
     for rule in from_set.values():
         targets = [t for t in rule.get("to", []) if t]
         if not targets:
             if rule.get("type") == "ai_filler":
+                # ai_filler to:[] must not have english (phantom suggestion bug)
+                if rule.get("to") == [] and rule.get("english"):
+                    warnings.append(
+                        f'ai-filler-english: "{rule["from"]}" has to:[] '
+                        f"with english field — effective_suggestions() "
+                        f"would use english as suggestion, breaking "
+                        f'flag-only semantics; remove english or use to:[""]'
+                    )
                 continue
             english = rule.get("english", "")
             if not english:
@@ -984,6 +996,16 @@ def detect_conflicts(
                 f'clue-overlap: "{frm}" has terms in both context_clues '
                 f"and negative_context_clues: {sorted(overlap)}"
             )
+        # Self-suppression: negative clue equals the from term exactly.
+        # Compound negative clues that merely contain from as substring
+        # (e.g. from="搜索", neg="搜索令") are intentional — they suppress
+        # the rule when the compound word appears in context.
+        for clue in rule.get("negative_context_clues") or []:
+            if isinstance(clue, str) and clue == frm:
+                warnings.append(
+                    f'neg-self-suppress: "{frm}" negative_context_clue '
+                    f"equals the from term (would always self-suppress)"
+                )
 
     # 10. Self-referencing to: from value must not appear in its own to array.
     for rule in from_set.values():

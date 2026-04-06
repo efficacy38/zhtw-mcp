@@ -48,11 +48,12 @@ fn consume_duplicate_separator(bytes: &[u8], mut i: usize) -> Option<usize> {
     }
 
     if i < len && bytes[i] == b'\r' {
-        let newline_end = i + 1;
-        if newline_end < len && bytes[newline_end] == b'\n' {
-            i = newline_end + 1;
-            saw_separator = true;
+        i += 1;
+        // Consume optional \n after \r (CRLF), but bare \r is also accepted.
+        if i < len && bytes[i] == b'\n' {
+            i += 1;
         }
+        saw_separator = true;
     } else if i < len && bytes[i] == b'\n' {
         i += 1;
         saw_separator = true;
@@ -208,10 +209,17 @@ fn scan_latin_duplicates(text: &str, excluded: &[ByteRange], issues: &mut Vec<Is
             i = w1_end;
             continue;
         }
-        // Ensure word2 ends at a word boundary.
-        if w2_end_max < len && bytes[w2_end_max].is_ascii_alphanumeric() {
-            i = w1_end;
-            continue;
+        // Ensure word2 ends at a word boundary.  Check the next Unicode
+        // scalar (not just ASCII byte) so accented Latin chars like 'é' in
+        // "cacheé" correctly prevent a false match on "cache".
+        if w2_end_max < len {
+            let rest = &text[w2_end_max..];
+            if let Some(ch) = rest.chars().next() {
+                if ch.is_alphanumeric() {
+                    i = w1_end;
+                    continue;
+                }
+            }
         }
 
         if is_excluded(w1_start, w2_end_max, excluded) {
@@ -274,6 +282,9 @@ mod tests {
         // Windows newline-separated
         let issues = scan("cache\r\ncache");
         assert_eq!(issues.len(), 1, "CRLF-separated duplicate missed");
+        // Bare CR (legacy Mac / clipboard text)
+        let issues = scan("cache\rcache");
+        assert_eq!(issues.len(), 1, "bare CR-separated duplicate missed");
     }
 
     #[test]
@@ -325,5 +336,103 @@ mod tests {
     #[test]
     fn skips_internal_compound_double_char() {
         assert!(scan("財政政策").is_empty());
+    }
+
+    #[test]
+    fn catches_two_char_cjk_duplicate() {
+        // Two-char unit: 作業作業 is NOT a reduplication whitelist entry.
+        let issues = scan("作業作業完成了");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "作業作業");
+        assert_eq!(issues[0].suggestions.as_ref(), ["作業"]);
+    }
+
+    #[test]
+    fn catches_three_char_cjk_duplicate() {
+        let issues = scan("處理器處理器效能高");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "處理器處理器");
+        assert_eq!(issues[0].suggestions.as_ref(), ["處理器"]);
+    }
+
+    #[test]
+    fn latin_case_insensitive() {
+        // 'Cache cache' differs in case but should still be caught.
+        let issues = scan("Cache cache is fast");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "Cache cache");
+    }
+
+    #[test]
+    fn skips_short_latin_words() {
+        // Words < 3 chars should not be flagged to avoid noise.
+        assert!(scan("is is").is_empty());
+        assert!(scan("to to").is_empty());
+    }
+
+    #[test]
+    fn latin_duplicate_at_end_of_string() {
+        let issues = scan("fast cache cache");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "cache cache");
+    }
+
+    #[test]
+    fn cjk_duplicate_at_end_of_string() {
+        let issues = scan("完成去去");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "去去");
+    }
+
+    #[test]
+    fn cjk_duplicate_at_string_start() {
+        let issues = scan("去去了");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "去去");
+    }
+
+    #[test]
+    fn skips_boundary_compound_before() {
+        // Single-char dup with CJK on both sides is legitimate morphology.
+        assert!(scan("公共共識").is_empty());
+    }
+
+    #[test]
+    fn catches_boundary_compound_before_only() {
+        // CJK before but NOT after: should fire.
+        let issues = scan("公共共。");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].found, "共共");
+    }
+
+    #[test]
+    fn latin_duplicate_not_partial_word() {
+        // 'caching caching' is valid but 'cache caching' is not a dup.
+        let issues = scan("cache caching data");
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn latin_duplicate_not_partial_accented_word() {
+        // 'cacheé' is a longer word with accented char; 'cache cache' must not match.
+        let issues = scan("cache cacheé data");
+        assert!(
+            issues.is_empty(),
+            "accented suffix must prevent false match"
+        );
+    }
+
+    #[test]
+    fn multiple_latin_duplicates() {
+        let issues = scan("the the quick cache cache");
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].found, "the the");
+        assert_eq!(issues[1].found, "cache cache");
+    }
+
+    #[test]
+    fn cjk_duplicate_mixed_with_non_cjk() {
+        // Latin text between CJK should not cause false positives.
+        assert!(scan("去 hello 去").is_empty());
     }
 }

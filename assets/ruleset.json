@@ -848,8 +848,10 @@
       "from": "保存",
       "to": ["儲存"],
       "type": "cross_strait",
-      "context": "@domain UI",
-      "english": "save"
+      "context": "@domain UI。tw 日常亦用「保存」(保存食物、保存文化)，僅 IT 存檔語境改「儲存」",
+      "english": "save",
+      "context_clues": ["檔案", "存檔", "按鈕", "草稿", "備份"],
+      "negative_context_clues": ["食物", "文化", "遺產", "期限"]
     },
     {
       "from": "保暖杯",
@@ -1203,8 +1205,9 @@
       "from": "優化",
       "to": ["最佳化"],
       "type": "cross_strait",
-      "context": "@domain IT。著重於經過反覆調整在不同方案間挑選出最適宜、最佳且符合需求的一項。若譯為「優化」則與 improve (改善/提升) 混淆，喪失「挑選比較」的暗喻",
-      "english": "optimize"
+      "context": "@domain IT。tw「優化」泛用於商業；IT optimize 改「最佳化」以區分 improve",
+      "english": "optimize",
+      "negative_context_clues": ["流程", "體驗", "服務"]
     },
     {
       "from": "優步",
@@ -2045,8 +2048,10 @@
       "from": "創建",
       "to": ["建立"],
       "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "create"
+      "context": "@domain IT。tw「創建」= found/establish (創建公司)；IT create 改「建立」",
+      "english": "create",
+      "context_clues": ["檔案", "目錄", "物件", "帳號", "資料庫"],
+      "negative_context_clues": ["公司", "國家", "政黨", "王朝"]
     },
     {
       "from": "功放",
@@ -2636,13 +2641,6 @@
       "type": "cross_strait",
       "context": "@domain 作業系統",
       "english": "command line"
-    },
-    {
-      "from": "命名空間",
-      "to": ["名稱空間", "名字空間"],
-      "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "namespace"
     },
     {
       "from": "咖喱",
@@ -3527,8 +3525,9 @@
       "from": "委託",
       "to": ["委派"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "delegate"
+      "context": "@domain 程式設計。tw「委託」= entrust；僅程式設計 delegate 義改「委派」",
+      "english": "delegate",
+      "context_clues": ["程式", "事件", "回呼", "C#", ".NET", "型別"]
     },
     {
       "from": "婚外戀",
@@ -4026,8 +4025,10 @@
       "from": "導航",
       "to": ["導覽"],
       "type": "cross_strait",
-      "context": "@domain UI",
-      "english": "navigate"
+      "context": "@domain UI。tw「導航」= GPS navigation；網站/UI navigation 改「導覽」",
+      "english": "navigate",
+      "context_clues": ["網站", "網頁", "選單", "UI", "側邊欄"],
+      "negative_context_clues": ["衛星", "GPS", "汽車", "路線"]
     },
     {
       "from": "導航欄",
@@ -4720,7 +4721,7 @@
       "from": "性能",
       "to": ["效能"],
       "type": "cross_strait",
-      "context": "@domain 通訊",
+      "context": "@domain IT",
       "english": "performance"
     },
     {
@@ -4941,8 +4942,10 @@
       "from": "打開",
       "to": ["開啟"],
       "type": "cross_strait",
-      "context": "@domain UI",
-      "english": "open"
+      "context": "@domain UI。tw「打開」= open physically (打開門)；UI open 改「開啟」",
+      "english": "open",
+      "context_clues": ["檔案", "連結", "頁面", "視窗", "應用"],
+      "negative_context_clues": ["心扉", "門窗", "窗戶", "大門"]
     },
     {
       "from": "批處理",
@@ -5202,8 +5205,10 @@
       "from": "推遲",
       "to": ["延緩"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "defer"
+      "context": "@domain IT。tw「推遲」= postpone (推遲會議)；IT defer 改「延緩」",
+      "english": "defer",
+      "context_clues": ["求值", "初始化", "排程", "任務", "非同步"],
+      "negative_context_clues": ["會議", "選舉", "比賽"]
     },
     {
       "from": "插件",
@@ -5223,8 +5228,10 @@
       "from": "搜索",
       "to": ["搜尋"],
       "type": "cross_strait",
-      "context": "@domain 資料結構",
-      "english": "search"
+      "context": "@domain IT。tw「搜索」用於法律 (搜索令)；IT search 義改「搜尋」",
+      "english": "search",
+      "context_clues": ["關鍵字", "查詢", "索引", "引擎", "結果"],
+      "negative_context_clues": ["搜索令", "搜索票", "法院"]
     },
     {
       "from": "搜索引擎",
@@ -6245,8 +6252,10 @@
       "from": "棧",
       "to": ["堆疊"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "stack"
+      "context": "@domain 程式設計。單字「棧」在非 CS 語境意為客棧、貨棧",
+      "english": "stack",
+      "context_clues": ["程式", "記憶體", "指標", "push", "pop", "溢位"],
+      "exceptions": ["客棧", "貨棧", "棧道", "木棧", "棧橋"]
     },
     {
       "from": "棧輾轉開解",
@@ -6973,8 +6982,10 @@
       "from": "添加",
       "to": ["新增"],
       "type": "cross_strait",
-      "context": "@domain UI",
-      "english": "add"
+      "context": "@domain UI。tw「添加」= add substance (添加物)；UI/IT add 改「新增」",
+      "english": "add",
+      "context_clues": ["欄位", "按鈕", "項目", "記錄", "清單"],
+      "negative_context_clues": ["添加物", "添加劑", "食品"]
     },
     {
       "from": "渠道",
@@ -9771,8 +9782,10 @@
       "from": "觸摸",
       "to": ["觸控"],
       "type": "cross_strait",
-      "context": "@domain UI",
-      "english": "touch"
+      "context": "@domain UI。tw「觸摸」= physical touch；IT/UI touch 改「觸控」",
+      "english": "touch",
+      "context_clues": ["螢幕", "手勢", "事件", "介面", "裝置"],
+      "negative_context_clues": ["心靈", "感動", "情感"]
     },
     {
       "from": "觸摸屏",
@@ -9895,8 +9908,10 @@
       "from": "設置",
       "to": ["設定"],
       "type": "cross_strait",
-      "context": "@domain 資料結構",
-      "english": "settings"
+      "context": "@domain IT。tw「設置」= set up physically (設置路障)；IT settings 改「設定」",
+      "english": "settings",
+      "context_clues": ["選項", "參數", "頁面", "帳號", "介面"],
+      "negative_context_clues": ["路障", "崗哨", "關卡", "據點"]
     },
     {
       "from": "設計模式",
@@ -10560,8 +10575,9 @@
       "from": "通過",
       "to": ["透過"],
       "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "through/via"
+      "context": "@domain IT。tw「通過」= pass (通過考試)；僅 via/through 義改「透過」",
+      "english": "through/via",
+      "negative_context_clues": ["考試", "審核", "法案", "檢驗", "投票"]
     },
     {
       "from": "通配符",
@@ -10645,8 +10661,10 @@
       "from": "運行",
       "to": ["執行"],
       "type": "cross_strait",
-      "context": "@domain UI。英語的 run 和 execute 有時可互換，前者著重應用程式層級，後者則用於 CPU 和作業系統層級。tw 沒有明確區分",
-      "english": "run/execute"
+      "context": "@domain UI",
+      "english": "run/execute",
+      "context_clues": ["程式", "軟體", "服務", "腳本", "命令"],
+      "negative_context_clues": ["軌道", "列車", "班次"]
     },
     {
       "from": "運行時",
@@ -11548,8 +11566,10 @@
       "from": "響應",
       "to": ["回應"],
       "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "response"
+      "context": "@domain IT。tw「響應」= answer a call (響應號召)；IT response 改「回應」",
+      "english": "response",
+      "context_clues": ["請求", "伺服器", "HTTP", "API", "延遲"],
+      "negative_context_clues": ["號召", "呼籲", "倡議"]
     },
     {
       "from": "頁眉",
@@ -11986,8 +12006,10 @@
       "from": "高級",
       "to": ["高階", "進階"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "high-level/advanced"
+      "context": "@domain IT。tw「高級」= luxury/upscale (高級餐廳)；IT 語境改「高階」或「進階」",
+      "english": "high-level/advanced",
+      "context_clues": ["設定", "功能", "語言", "型別", "選項"],
+      "negative_context_clues": ["餐廳", "飯店", "住宅", "品牌"]
     },
     {
       "from": "高速緩存",
