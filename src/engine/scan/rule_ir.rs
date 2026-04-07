@@ -237,11 +237,11 @@ pub fn build_clue_index_into(
         ac.find_overlapping_iter(text)
             .map(|m| (m.start(), m.pattern().as_usize() as u16)),
     );
-    // AC iterates left-to-right, so hits are already offset-sorted.
-    debug_assert!(
-        out.windows(2).all(|w| w[0].0 <= w[1].0),
-        "clue AC hits not offset-sorted"
-    );
+    // find_overlapping_iter with MatchKind::Standard does not guarantee
+    // left-to-right start-offset order for overlapping patterns.
+    // Sort to satisfy the binary-search contract in lookup_clues_in_window.
+    // Nearly sorted in practice, so the sort is close to O(n).
+    out.sort_unstable_by_key(|&(off, _)| off);
 }
 
 /// Look up clue hits within a byte window from the pre-computed index.
@@ -1024,4 +1024,52 @@ pub fn compile_spelling_rules_filtered(
         rule_filter_flags,
         rule_classes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_clue_index_sorts_overlapping_hits_by_start_offset() {
+        let ac = AhoCorasickBuilder::new()
+            .match_kind(MatchKind::Standard)
+            .build(["aba", "ba", "a"])
+            .expect("build clue AC");
+        let mut index = Vec::new();
+
+        build_clue_index_into(Some(&ac), "aba", &mut index);
+
+        assert!(
+            index.windows(2).all(|w| w[0].0 <= w[1].0),
+            "clue hits must be sorted by start offset: {index:?}"
+        );
+    }
+
+    #[test]
+    fn lookup_clues_counts_distinct_positive_ids_across_overlaps() {
+        let clue_index = vec![(0, 2), (0, 2), (1, 3), (2, 5)];
+        let pos_ids = vec![2, 3, 5];
+
+        let (pos_found, any_neg) = lookup_clues_in_window(&clue_index, 0, 3, Some(&pos_ids), None);
+
+        assert_eq!(pos_found, 3, "should count distinct positive clue ids");
+        assert!(!any_neg, "no negative clues should be reported");
+    }
+
+    #[test]
+    fn lookup_clues_negative_hit_vetoes_same_offset_window() {
+        let clue_index = vec![(0, 2), (0, 7), (1, 3)];
+        let pos_ids = vec![2, 3];
+        let neg_ids = vec![7];
+
+        let (pos_found, any_neg) =
+            lookup_clues_in_window(&clue_index, 0, 2, Some(&pos_ids), Some(&neg_ids));
+
+        assert_eq!(
+            pos_found, 1,
+            "positive clue before veto should still be counted"
+        );
+        assert!(any_neg, "negative clue at same offset must veto");
+    }
 }

@@ -1942,9 +1942,10 @@
       "from": "刷新",
       "to": ["重新整理"],
       "type": "cross_strait",
-      "context": "@domain UI。「刷新紀錄」(break a record) 為正確用法，不應替換",
+      "context": "@domain UI。「刷新紀錄」(break a record) 為正確用法，不應替換。TLB 刷新、cache 刷新為 tw CS 標準用語 (flush)，不應替換",
       "english": "refresh",
-      "context_clues": ["頁面", "瀏覽器", "網頁", "載入", "加載", "快取", "緩存", "按鈕"]
+      "context_clues": ["頁面", "瀏覽器", "網頁", "載入", "加載", "快取", "緩存", "按鈕"],
+      "negative_context_clues": ["TLB", "cache", "Cache", "flush", "快取刷新", "指令管線"]
     },
     {
       "from": "刷新率",
@@ -2357,10 +2358,27 @@
       "exceptions": ["開放原始碼"]
     },
     {
-      "from": "原子操作",
-      "to": ["不可分割操作", "最小操作"],
+      "from": "原子",
+      "to": ["不可分割", "atomic"],
       "type": "cross_strait",
-      "context": "@domain 程式設計。此處「原子」為 indivisible 語意，非物理學的 atom",
+      "context": "@domain 程式設計。CS atomic 語境指 indivisible 操作；物理「原子」(atom) 為正確 tw 用法 (@seealso 原子操作, 原子性)",
+      "english": "atomic (concurrency/CPU)",
+      "context_clues": ["並發", "並行", "互斥", "競態", "執行緒", "thread", "atomic", "mutex", "CAS"],
+      "negative_context_clues": ["物理", "化學", "中子", "質子", "粒子"],
+      "exceptions": ["原子核", "原子能", "原子彈", "原子筆", "原子鐘", "原子序", "原子量", "原子論", "原子價", "原子團", "原子半徑", "原子軌道", "原子軌域", "原子質量", "原子物理", "原子模型", "原子化"]
+    },
+    {
+      "from": "原子性",
+      "to": ["不可分割的特性", "atomics"],
+      "type": "cross_strait",
+      "context": "@domain 程式設計。CS atomicity；指操作不可被中斷的特性，與物理「原子」無關 (@seealso 原子, 原子操作)",
+      "english": "atomicity"
+    },
+    {
+      "from": "原子操作",
+      "to": ["不可分割操作", "最小操作", "atomic operation"],
+      "type": "cross_strait",
+      "context": "@domain 程式設計。此處「原子」為 indivisible 語意，非物理學的 atom (@seealso 原子, 原子性)",
       "english": "atomic operation"
     },
     {
@@ -5839,13 +5857,6 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "pull-tab can"
-    },
-    {
-      "from": "映射",
-      "to": ["對映"],
-      "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "mapping"
     },
     {
       "from": "時分多址",
@@ -9925,7 +9936,7 @@
       "from": "許可權",
       "to": ["權限"],
       "type": "cross_strait",
-      "context": "@domain 作業系統。「權限」為台灣慣用詞",
+      "context": "@domain 作業系統。「權限」為 tw 慣用詞",
       "english": "permission"
     },
     {
@@ -10487,14 +10498,6 @@
       "english": "eyesore"
     },
     {
-      "from": "返回",
-      "to": ["傳回", "回返", "回傳"],
-      "type": "cross_strait",
-      "context": "@domain 程式設計。一般用法「返回」(go back) 為正確 tw 用法",
-      "english": "return",
-      "context_clues": ["函式", "函數", "程式碼", "代碼", "變數", "變量", "回傳"]
-    },
-    {
       "from": "返回值",
       "to": ["回傳值", "回返值"],
       "type": "cross_strait",
@@ -10590,7 +10593,7 @@
       "from": "連接",
       "to": ["連線"],
       "type": "cross_strait",
-      "context": "@domain IT。連接埠（port）為正確台灣慣用語；連接點（articulation/junction point）為圖論術語，均不替換",
+      "context": "@domain IT。連接埠（port）為正確 tw 慣用語；連接點（articulation/junction point）為圖論術語，均不替換",
       "english": "connect",
       "exceptions": ["連接埠", "連接點"]
     },

@@ -530,6 +530,89 @@ fn ir_full_ruleset_context_clue_suppression() {
     );
 }
 
+#[test]
+fn ir_full_ruleset_refresh_suppressed_for_cache_flush_context() {
+    let scanner = full_scanner();
+
+    let cache_flush = scanner.scan("需要做 Cache 刷新來清掉舊資料");
+    assert!(
+        cache_flush.issues.iter().all(|i| i.found != "刷新"),
+        "刷新 should be suppressed in Cache flush context"
+    );
+
+    let ui_refresh = scanner.scan("按下按鈕刷新頁面內容");
+    assert!(
+        ui_refresh.issues.iter().any(|i| i.found == "刷新"),
+        "刷新 should still fire in UI refresh context"
+    );
+
+    let ui_failure = scanner.scan("按下按鈕後頁面刷新失效");
+    assert!(
+        ui_failure.issues.iter().any(|i| i.found == "刷新"),
+        "刷新 should still fire in UI failure context"
+    );
+}
+
+#[test]
+fn ir_full_ruleset_return_and_mapping_terms_stay_unflagged() {
+    let scanner = full_scanner();
+
+    let return_issues = scanner.scan("函式返回結果後結束執行");
+    assert!(
+        return_issues.issues.iter().all(|i| i.found != "返回"),
+        "返回 should remain unflagged as acceptable TW usage"
+    );
+
+    let mapping_issues = scanner.scan("虛擬記憶體映射到實體頁框");
+    assert!(
+        mapping_issues.issues.iter().all(|i| i.found != "映射"),
+        "映射 should remain unflagged as acceptable technical usage"
+    );
+}
+
+#[test]
+fn ir_full_ruleset_atomic_family_rules() {
+    let scanner = full_scanner();
+
+    // 原子性 fires as a compound rule with both Chinese and English suggestions.
+    // Leftmost-longest must pick 原子性 over the bare 原子 rule on this input.
+    let atomicity = scanner.scan("這個操作必須保證原子性");
+    let atomicity_issue = atomicity
+        .issues
+        .iter()
+        .find(|i| i.found == "原子性")
+        .expect("原子性 compound rule should fire");
+    assert!(
+        atomicity_issue
+            .suggestions
+            .iter()
+            .any(|s| s == "不可分割的特性"),
+        "原子性 should suggest 不可分割的特性"
+    );
+    assert!(
+        atomicity_issue.suggestions.iter().any(|s| s == "atomics"),
+        "原子性 should suggest atomics"
+    );
+    assert!(
+        atomicity.issues.iter().all(|i| i.found != "原子"),
+        "bare 原子 must not fire on the substring inside 原子性"
+    );
+
+    // Bare 原子 fires only when CS context clues are present.
+    let cs_context = scanner.scan("mutex 與原子變數的差異");
+    assert!(
+        cs_context.issues.iter().any(|i| i.found == "原子"),
+        "bare 原子 should fire with CS context clues"
+    );
+
+    // Physics compounds in the exception list suppress the bare rule.
+    let physics = scanner.scan("原子核由質子和中子構成");
+    assert!(
+        physics.issues.iter().all(|i| i.found != "原子"),
+        "bare 原子 must not fire inside physics compounds"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Markdown exclusion through IR path
 // ---------------------------------------------------------------------------

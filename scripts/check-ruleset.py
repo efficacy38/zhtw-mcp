@@ -458,6 +458,25 @@ VALID_DOMAINS = {
 # Valid @geo sub-types.
 VALID_GEO_TYPES = {"country", "city", "landmark", "university"}
 
+# Country-name terms that should be expressed as "tw"/"cn" in context
+# fields per CLAUDE.md convention.  Only the bare region/country names
+# are listed; legitimate compound proper nouns (國立臺灣大學, 中華民國,
+# 中華人民共和國, 中國共產黨) are exempted by COUNTRY_TERM_EXEMPT_PHRASES.
+COUNTRY_TERMS_IN_CONTEXT = ["台灣", "臺灣", "中國大陸", "大陸", "中國"]
+
+# Compound proper nouns where a region name appearing in a context field
+# is legitimate (the term is part of a fixed name, not a region marker).
+COUNTRY_TERM_EXEMPT_PHRASES = [
+    "國立臺灣大學",
+    "國立台灣大學",
+    "中華民國",
+    "中華人民共和國",
+    "中國共產黨",
+    "中國國民黨",
+    "中華臺北",
+    "中華台北",
+]
+
 # Boilerplate IT clues often get copy-pasted onto unrelated rules.
 STOCK_IT_CONTEXT_CLUES = ["程式", "軟體", "系統", "電腦", "網路"]
 TECHNICAL_DOMAINS_WITH_STOCK_IT_CLUES = {
@@ -705,6 +724,7 @@ def detect_conflicts(
         its return value and appended to conflicts in main)
     23. SC char in non-variant rules (pure SC→TC and mixed SC in from)
     24. Stock IT clues on non-technical domains (copy-paste smell)
+    25. Country-name convention in context (use "tw"/"cn", not 台灣/中國/大陸)
 
     Advisories (checks 14-16, 22, 24, informational only):
     14. context_clues / negative_context_clues length convention (<=6 chars)
@@ -1302,6 +1322,38 @@ def detect_conflicts(
                 f'stock-it-clues: "{rule["from"]}" uses stock IT clues '
                 f'outside technical domains ({domain or "no @domain"})'
             )
+
+    # 25. Country-name convention in context fields.  CLAUDE.md / project
+    #     convention requires "tw"/"cn" instead of bare 台灣/臺灣/中國/大陸
+    #     so context strings stay neutral and consistent.  Exemptions:
+    #       - the country term appears in the rule's from/to (e.g. 中國臺灣
+    #         → 臺灣 must say 臺灣 in context to disambiguate)
+    #       - the country term is part of a fixed proper noun
+    #         (國立臺灣大學, 中華民國, 中華人民共和國, ...)
+    #       - the rule has @geo annotation (geo rules name regions)
+    for rule in from_set.values():
+        frm = rule["from"]
+        ctx = rule.get("context", "")
+        if not ctx:
+            continue
+        # @geo rules legitimately use region names.
+        if ctx.startswith("@geo"):
+            continue
+        fields_text = frm + "".join(rule.get("to", []) or [])
+        # Mask out exempted compound proper nouns before scanning so
+        # 國立臺灣大學 does not contribute a 臺灣 hit.
+        masked = ctx
+        for phrase in COUNTRY_TERM_EXEMPT_PHRASES:
+            if phrase in masked:
+                masked = masked.replace(phrase, "_" * len(phrase))
+        for term in COUNTRY_TERMS_IN_CONTEXT:
+            if term in masked and term not in fields_text:
+                warnings.append(
+                    f'context-country-name: "{frm}" context uses "{term}" '
+                    f'— project convention requires "tw"/"cn" '
+                    f"(except in @geo rules or fixed proper nouns)"
+                )
+                break
 
     # 23. Simplified Chinese in non-variant rules: the 'from' field of
     #     cross_strait rules should use Traditional Chinese (the S2T
