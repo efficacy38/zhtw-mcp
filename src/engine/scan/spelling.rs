@@ -52,6 +52,7 @@ impl Scanner {
         // Pre-compute profile gates.
         let skip_variant = !cfg.variant_normalization || zh_type == ChineseType::Simplified;
         let skip_ai = !cfg.ai_filler_detection;
+        let skip_translationese = !cfg.translationese_detection;
 
         // Lazy clue index.
         clue_buf.clear();
@@ -71,6 +72,7 @@ impl Scanner {
                     match compiled.rule_type {
                         RuleType::Variant if skip_variant => continue,
                         RuleType::AiFiller if skip_ai => continue,
+                        RuleType::Translationese if skip_translationese => continue,
                         RuleType::PoliticalColoring
                             if !cfg
                                 .political_stance

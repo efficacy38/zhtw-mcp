@@ -1005,30 +1005,28 @@ impl Scanner {
             !(self.build_filter.exclude_ai_filler && cfg.ai_filler_detection),
             "scan config enables ai_filler_detection but scanner was built without ai_filler rules"
         );
+        debug_assert!(
+            !(self.build_filter.exclude_translationese && cfg.translationese_detection),
+            "scan config enables translationese_detection but scanner was built without translationese rules"
+        );
 
         scratch.clear();
 
         // Compute rules_checked: count spelling rules active under this
         // profile (case/punctuation are procedural, not discrete rules).
+        // Single pass over spelling_rules — subtract any rule whose type is
+        // gated off by the current config.
         let rules_checked = if cfg.spelling {
-            let mut n = self.spelling_db.spelling_rules.len();
-            if !cfg.variant_normalization {
-                n -= self
-                    .spelling_db
-                    .spelling_rules
-                    .iter()
-                    .filter(|r| r.rule_type == RuleType::Variant)
-                    .count();
-            }
-            if !cfg.ai_filler_detection {
-                n -= self
-                    .spelling_db
-                    .spelling_rules
-                    .iter()
-                    .filter(|r| r.rule_type == RuleType::AiFiller)
-                    .count();
-            }
-            n
+            self.spelling_db
+                .spelling_rules
+                .iter()
+                .filter(|r| match r.rule_type {
+                    RuleType::Variant => cfg.variant_normalization,
+                    RuleType::AiFiller => cfg.ai_filler_detection,
+                    RuleType::Translationese => cfg.translationese_detection,
+                    _ => true,
+                })
+                .count()
         } else {
             0
         };

@@ -199,19 +199,23 @@ fn ir_ai_filler_gated_by_profile() {
         vec![],
     );
 
-    // Base profile does NOT enable AI filler detection.
+    // Base profile enables AI filler detection by default (53.x initiative).
     let out = scanner.scan("值得注意的是這件事");
-    assert_eq!(out.issues.len(), 0, "ai_filler should be gated by config");
+    assert_eq!(out.issues.len(), 1, "ai_filler fires under default Base");
 
-    // detect_ai capability enables AI filler detection.
+    // Explicitly disabling ai_filler_detection gates the rule off.
     let mut cfg = Profile::Base.config();
-    cfg.ai_filler_detection = true;
-    cfg.ai_semantic_safety = true;
-    cfg.ai_density_detection = true;
-    cfg.ai_structural_patterns = true;
+    cfg.ai_filler_detection = false;
+    cfg.ai_semantic_safety = false;
+    cfg.ai_density_detection = false;
+    cfg.ai_structural_patterns = false;
     let out =
         scanner.scan_for_content_type_with_config("值得注意的是這件事", ContentType::Plain, cfg);
-    assert_eq!(out.issues.len(), 1, "ai_filler should fire with detect_ai");
+    assert_eq!(
+        out.issues.len(),
+        0,
+        "ai_filler should be gated when disabled"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -468,26 +472,8 @@ fn ir_full_ruleset_variant_skipped_for_simplified() {
 fn ir_full_ruleset_ai_filler_gated() {
     let scanner = full_scanner();
 
-    // Under default profile, AI filler rules should not fire.
+    // Under default profile, AI filler rules fire automatically (53.x).
     let out = scanner.scan("值得注意的是這個問題");
-    let ai_issues: Vec<_> = out
-        .issues
-        .iter()
-        .filter(|i| i.found == "值得注意的是")
-        .collect();
-    assert!(
-        ai_issues.is_empty(),
-        "AI filler should not fire under Base profile"
-    );
-
-    // With detect_ai capability, AI filler rules should fire.
-    let mut ai_cfg = Profile::Base.config();
-    ai_cfg.ai_filler_detection = true;
-    let out = scanner.scan_for_content_type_with_config(
-        "值得注意的是這個問題",
-        ContentType::Plain,
-        ai_cfg,
-    );
     let ai_issues: Vec<_> = out
         .issues
         .iter()
@@ -496,7 +482,26 @@ fn ir_full_ruleset_ai_filler_gated() {
     assert_eq!(
         ai_issues.len(),
         1,
-        "AI filler should fire exactly once with detect_ai"
+        "AI filler should fire under default Base profile"
+    );
+
+    // Explicitly disabling ai_filler_detection gates the rule off.
+    let mut off_cfg = Profile::Base.config();
+    off_cfg.ai_filler_detection = false;
+    let out = scanner.scan_for_content_type_with_config(
+        "值得注意的是這個問題",
+        ContentType::Plain,
+        off_cfg,
+    );
+    let ai_issues: Vec<_> = out
+        .issues
+        .iter()
+        .filter(|i| i.found == "值得注意的是")
+        .collect();
+    assert_eq!(
+        ai_issues.len(),
+        0,
+        "AI filler should be gated when explicitly disabled"
     );
 }
 

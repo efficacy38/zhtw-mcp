@@ -51,6 +51,10 @@ pub struct ProfileConfig {
     pub grammar_checks: bool,
     /// Enable AI filler phrase detection (值得注意的是, 在這種情況下, etc.).
     pub ai_filler_detection: bool,
+    /// Enable translationese (翻譯腔 / 歐化) detection — lexical patterns
+    /// from the dewesternise checklist.  Orthogonal to `ai_filler_detection`:
+    /// a translated manual is 歐化 but not AI-generated.
+    pub translationese_detection: bool,
     /// Enable AI semantic safety word detection (意味著 disambiguation,
     /// copula avoidance, passive voice overuse).
     pub ai_semantic_safety: bool,
@@ -125,7 +129,8 @@ impl Profile {
                 ellipsis_normalization: true,
                 range_en_dash: false,
                 grammar_checks: true,
-                ai_filler_detection: false,
+                ai_filler_detection: true,
+                translationese_detection: true,
                 ai_semantic_safety: false,
                 ai_density_detection: false,
                 ai_structural_patterns: false,
@@ -144,7 +149,8 @@ impl Profile {
                 ellipsis_normalization: true,
                 range_en_dash: false,
                 grammar_checks: true,
-                ai_filler_detection: false,
+                ai_filler_detection: true,
+                translationese_detection: true,
                 ai_semantic_safety: false,
                 ai_density_detection: false,
                 ai_structural_patterns: false,
@@ -320,6 +326,11 @@ pub enum RuleType {
     /// AI filler phrase: zero-information hedging/emphasis inserted by LLMs.
     /// Fixed-string AC matches; deletions or simple substitutions.
     AiFiller,
+    /// Translationese (翻譯腔 / 歐化): Europeanized Chinese syntax and
+    /// vocabulary.  Orthogonal to AI detection — a translated manual is
+    /// 歐化 but not AI-generated.  Sourced from the dewesternise checklist
+    /// (余光中《論中文之西化》 and related literature).
+    Translationese,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -355,7 +366,7 @@ impl RuleType {
         match self {
             RuleType::PoliticalColoring | RuleType::Typo => Severity::Error,
             RuleType::CrossStrait | RuleType::Confusable | RuleType::Variant => Severity::Warning,
-            RuleType::AiFiller => Severity::Info,
+            RuleType::AiFiller | RuleType::Translationese => Severity::Info,
         }
     }
 }
@@ -627,6 +638,9 @@ pub enum IssueType {
     AiStyle,
     /// Consecutive duplicate word or character (e.g. '去去', 'cache cache').
     Repetition,
+    /// Translationese (翻譯腔 / 歐化): Europeanized Chinese syntax/vocabulary.
+    /// Orthogonal to AiStyle — separate score, separate CLI/MCP surface.
+    Translationese,
 }
 
 impl IssueType {
@@ -643,6 +657,7 @@ impl IssueType {
             IssueType::Grammar => 7,
             IssueType::AiStyle => 8,
             IssueType::Repetition => 9,
+            IssueType::Translationese => 10,
         }
     }
 
@@ -659,6 +674,7 @@ impl IssueType {
             IssueType::Grammar => "grammar",
             IssueType::AiStyle => "ai_style",
             IssueType::Repetition => "repetition",
+            IssueType::Translationese => "translationese",
         }
     }
 }
@@ -697,6 +713,7 @@ impl From<RuleType> for IssueType {
         match rt {
             RuleType::PoliticalColoring => IssueType::PoliticalColoring,
             RuleType::CrossStrait => IssueType::CrossStrait,
+            RuleType::Translationese => IssueType::Translationese,
             RuleType::Typo => IssueType::Typo,
             RuleType::Confusable => IssueType::Confusable,
             RuleType::Variant => IssueType::Variant,

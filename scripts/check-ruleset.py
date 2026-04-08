@@ -62,6 +62,7 @@ VALID_RULE_TYPES = {
     "confusable",
     "political_coloring",
     "ai_filler",
+    "translationese",
 }
 
 # All known spelling rule fields (anything else is an unknown key warning).
@@ -784,6 +785,10 @@ def detect_conflicts(
     for rule in from_set.values():
         targets = [t for t in rule.get("to", []) if t]
         if not targets:
+            if rule.get("type") == "translationese":
+                # Translationese rules use empty to intentionally when the
+                # pattern is report-only (e.g. G5 們 plural, V5 一個 redundancy).
+                continue
             if rule.get("type") == "ai_filler":
                 # ai_filler to:[] must not have english (phantom suggestion bug)
                 if rule.get("to") == [] and rule.get("english"):
@@ -873,9 +878,15 @@ def detect_conflicts(
                 continue
             if target in from_set and target != rule["from"]:
                 target_rule = from_set[target]
-                # Skip if the target rule has context_clues (it won't
-                # always fire, so re-flagging is conditional).
-                if target_rule.get("context_clues"):
+                # Skip if the target rule fires only conditionally — either
+                # positive context_clues (which must be present for it to
+                # fire) or negative_context_clues (which suppress it in the
+                # matching context).  In both cases the re-flag is not
+                # guaranteed, so the chain is not an unconditional 2-pass
+                # convergence hazard.
+                if target_rule.get("context_clues") or target_rule.get(
+                    "negative_context_clues"
+                ):
                     continue
                 target_to = [t for t in target_rule.get("to", []) if t]
                 if target_to:
@@ -1274,7 +1285,7 @@ def detect_conflicts(
     #     a non-translation purpose.
     for rule in from_set.values():
         rtype = rule.get("type", "")
-        if rtype in ("variant", "ai_filler", "political_coloring"):
+        if rtype in ("variant", "ai_filler", "political_coloring", "translationese"):
             continue
         if not rule.get("english"):
             advisories.append(
@@ -1285,7 +1296,7 @@ def detect_conflicts(
     #     variant, ai_filler, and political_coloring rules are exempt.
     for rule in from_set.values():
         rtype = rule.get("type", "")
-        if rtype in ("variant", "ai_filler", "political_coloring"):
+        if rtype in ("variant", "ai_filler", "political_coloring", "translationese"):
             continue
         if not rule.get("context"):
             advisories.append(

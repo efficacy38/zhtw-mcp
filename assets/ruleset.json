@@ -47,35 +47,35 @@
     },
     {
       "from": "GSM移動",
-      "to": ["GSM行動"],
+      "to": ["GSM 行動"],
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "GSM mobile"
     },
     {
       "from": "Google工具條",
-      "to": ["Google工具列"],
+      "to": ["Google 工具列"],
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "Google Toolbar"
     },
     {
       "from": "PN結",
-      "to": ["PN接面"],
+      "to": ["PN 接面"],
       "type": "cross_strait",
       "context": "@domain 電子",
       "english": "PN junction"
     },
     {
       "from": "SQL注入",
-      "to": ["SQL隱碼攻擊"],
+      "to": ["SQL 隱碼攻擊"],
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "SQL injection"
     },
     {
       "from": "SQL注入攻擊",
-      "to": ["SQL隱碼攻擊"],
+      "to": ["SQL 隱碼攻擊"],
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "SQL injection attack"
@@ -234,6 +234,24 @@
       "english": "download file"
     },
     {
+      "from": "不可否認",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C2: hollow assertion filler; delete"
+    },
+    {
+      "from": "不可或缺",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché"
+    },
+    {
+      "from": "不可磨滅",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C1: grandiose cliché"
+    },
+    {
       "from": "不容忽視",
       "to": [],
       "type": "ai_filler",
@@ -356,6 +374,12 @@
       "english": "main thread"
     },
     {
+      "from": "主要地",
+      "to": ["主要"],
+      "type": "translationese",
+      "context": "dewesternise.V8: 地 adverbial calque"
+    },
+    {
       "from": "主頁",
       "to": ["首頁"],
       "type": "cross_strait",
@@ -390,6 +414,12 @@
       "type": "cross_strait",
       "context": "@geo country (國名)",
       "english": "Yemen"
+    },
+    {
+      "from": "事先預告",
+      "to": ["預告"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
     },
     {
       "from": "事務",
@@ -455,6 +485,12 @@
       "type": "cross_strait",
       "context": "@domain 數學",
       "english": "binary"
+    },
+    {
+      "from": "互相合作",
+      "to": ["合作"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
     },
     {
       "from": "互聯網",
@@ -579,6 +615,12 @@
       "context": "@domain 電商",
       "english": "voucher",
       "context_clues": ["購物", "消費", "折扣", "優惠"]
+    },
+    {
+      "from": "令人驚豔",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché"
     },
     {
       "from": "令牌",
@@ -761,6 +803,24 @@
       "english": "job",
       "context_clues": ["Job", "job", "批次", "排程", "佇列", "queue"],
       "exceptions": ["作業系統", "家庭作業"]
+    },
+    {
+      "from": "作為一位",
+      "to": [""],
+      "type": "translationese",
+      "context": "dewesternise.V2: 作為一位 sentence-initial calque; delete"
+    },
+    {
+      "from": "作為一個",
+      "to": [""],
+      "type": "translationese",
+      "context": "dewesternise.V2: 作為一個 sentence-initial calque; delete"
+    },
+    {
+      "from": "作為一名",
+      "to": [""],
+      "type": "translationese",
+      "context": "dewesternise.V2: 作為一名 sentence-initial calque; delete"
     },
     {
       "from": "併發",
@@ -1548,6 +1608,12 @@
       "english": "fullscreen"
     },
     {
+      "from": "全新體驗",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché; delete"
+    },
+    {
       "from": "全棧",
       "to": ["全端"],
       "type": "cross_strait",
@@ -1612,11 +1678,23 @@
       "english": "public land mobile network"
     },
     {
+      "from": "公開公告",
+      "to": ["公告"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
+    },
+    {
       "from": "共享庫",
       "to": ["共享函式庫"],
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "shared library"
+    },
+    {
+      "from": "共同協作",
+      "to": ["協作"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
     },
     {
       "from": "兼容",
@@ -2033,14 +2111,14 @@
     },
     {
       "from": "創口貼",
-      "to": ["OK繃"],
+      "to": ["OK 繃"],
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "adhesive bandage"
     },
     {
       "from": "創可貼",
-      "to": ["OK繃"],
+      "to": ["OK 繃"],
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "band-aid/adhesive bandage"
@@ -2096,6 +2174,13 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "load"
+    },
+    {
+      "from": "助力",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature word",
+      "negative_context_clues": ["得力助", "鼎力"]
     },
     {
       "from": "助記符",
@@ -2299,6 +2384,13 @@
       "english": "Guatemala"
     },
     {
+      "from": "危險性",
+      "to": ["危險"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
+    },
+    {
       "from": "即插即用",
       "to": ["隨插即用"],
       "type": "cross_strait",
@@ -2425,6 +2517,13 @@
       "english": "uninstall"
     },
     {
+      "from": "反映了",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C4: shallow analysis cliché when paired with 深層/本質",
+      "positional_clues": ["before:深層", "before:本質"]
+    },
+    {
       "from": "反碼",
       "to": ["一補數"],
       "type": "cross_strait",
@@ -2459,6 +2558,12 @@
       "context": "@domain 程式設計",
       "english": "address-of operator",
       "context_clues": ["運算", "表達式", "運算子", "C++", "編譯", "程式", "語法"]
+    },
+    {
+      "from": "受到各界關注",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution cliché"
     },
     {
       "from": "受獎產品",
@@ -2497,6 +2602,12 @@
       "context_clues": ["系統", "程式", "功能", "架構", "方法"]
     },
     {
+      "from": "可以說是",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.V2: hedging filler"
+    },
+    {
       "from": "可移動",
       "to": ["抽取式"],
       "type": "cross_strait",
@@ -2505,11 +2616,25 @@
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
     },
     {
+      "from": "可能性",
+      "to": ["可能"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估", "機率"]
+    },
+    {
       "from": "可行函數",
       "to": ["可行函式"],
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "viable function"
+    },
+    {
+      "from": "可行性",
+      "to": ["可行"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "可視化",
@@ -2589,6 +2714,13 @@
       "context": "@domain 商業",
       "english": "contract",
       "context_clues": ["簽訂", "條款", "甲方", "乙方", "履行"]
+    },
+    {
+      "from": "合理性",
+      "to": ["合理"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "吉布提",
@@ -2717,6 +2849,12 @@
       "context": "@domain 日常",
       "english": "pump",
       "context_clues": ["水", "液體", "壓力", "抽", "管路", "流量"]
+    },
+    {
+      "from": "唱歌和跳舞",
+      "to": ["又唱又跳"],
+      "type": "translationese",
+      "context": "dewesternise.G6: 和 verb-pair calque"
     },
     {
       "from": "商業模型",
@@ -2964,6 +3102,12 @@
       "english": "SSD (solid-state drive)"
     },
     {
+      "from": "國家們",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G5: 們 plural overuse on non-human noun"
+    },
+    {
       "from": "國際象棋",
       "to": ["西洋棋"],
       "type": "cross_strait",
@@ -3098,6 +3242,12 @@
       "negative_context_clues": ["線性", "線路", "線段"]
     },
     {
+      "from": "在這個時間點上",
+      "to": ["目前", "此時"],
+      "type": "ai_filler",
+      "context": "humanize.V6: wordy cliché"
+    },
+    {
       "from": "在這個過程中",
       "to": ["過程中"],
       "type": "ai_filler",
@@ -3138,6 +3288,12 @@
       "context": "@domain 作業系統。限 IT 語境",
       "english": "address space",
       "context_clues": ["作業系統", "行程", "執行緒", "排程", "OS"]
+    },
+    {
+      "from": "坐落於",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: travel-brochure cliché"
     },
     {
       "from": "坦桑尼亞",
@@ -3526,6 +3682,13 @@
       "english": "socket"
     },
     {
+      "from": "奠定基礎",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché",
+      "negative_context_clues": ["地基", "建築", "水泥", "工程"]
+    },
+    {
       "from": "奧巴馬",
       "to": ["歐巴馬"],
       "type": "cross_strait",
@@ -3538,6 +3701,12 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "cheese"
+    },
+    {
+      "from": "好問題",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C7: sycophantic chatbot opener; delete"
     },
     {
       "from": "委託",
@@ -3726,6 +3895,12 @@
       "context_clues": ["SQL", "資料庫", "呼叫", "參數"]
     },
     {
+      "from": "存在著",
+      "to": ["存在"],
+      "type": "translationese",
+      "context": "dewesternise.V14: 存在著 existential calque"
+    },
+    {
       "from": "存盤",
       "to": ["存檔"],
       "type": "cross_strait",
@@ -3745,6 +3920,18 @@
       "type": "cross_strait",
       "context": "orphan process；「程序」此處指 process (@seealso 程序管理)",
       "english": "orphan process"
+    },
+    {
+      "from": "學習和工作",
+      "to": ["學習與工作"],
+      "type": "translationese",
+      "context": "dewesternise.G6: 和 overuse; prefer 與 in formal register"
+    },
+    {
+      "from": "學者普遍認為",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution; name specific scholars"
     },
     {
       "from": "宇航員",
@@ -3799,12 +3986,18 @@
       "context_clues": ["下載", "軟體", "APP"]
     },
     {
+      "from": "完美融合",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché"
+    },
+    {
       "from": "宏",
       "to": ["巨集"],
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "macro",
-      "context_clues": ["macro", "define", "預處理", "展開", "巨集", "C語言", "編譯器", "標頭檔"],
+      "context_clues": ["macro", "define", "預處理", "展開", "巨集", "C語言", "編譯器", "標頭檔", "C 語言"],
       "exceptions": ["宏觀", "宏大", "宏偉", "宏亮", "宏願", "宏圖", "宏旨", "宏遠", "恢宏", "寬宏", "宏碁", "宏達電", "宏核心", "宏內核", "李宏毅", "王力宏"]
     },
     {
@@ -4186,6 +4379,12 @@
       "english": "block"
     },
     {
+      "from": "展開調查",
+      "to": ["調查"],
+      "type": "translationese",
+      "context": "dewesternise.V10: weak verb + nominalization"
+    },
+    {
       "from": "層次結構",
       "to": ["階層結構", "階層", "階層體系"],
       "type": "cross_strait",
@@ -4360,6 +4559,12 @@
       "english": "Hillary"
     },
     {
+      "from": "希望這對你有幫助",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.M1: chatbot closer; delete"
+    },
+    {
       "from": "帕勞",
       "to": ["帛琉"],
       "type": "cross_strait",
@@ -4425,6 +4630,12 @@
       "english": "tablet computer"
     },
     {
+      "from": "年老和常常生病",
+      "to": ["年老多病"],
+      "type": "translationese",
+      "context": "dewesternise.G6: 和 adjective-pair calque"
+    },
+    {
       "from": "幺",
       "to": ["么"],
       "type": "variant",
@@ -4465,6 +4676,13 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "bed scene"
+    },
+    {
+      "from": "底層邏輯",
+      "to": ["邏輯", "原理"],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature phrase; prefer 邏輯/原理",
+      "negative_context_clues": ["底層架構", "底層硬體", "kernel"]
     },
     {
       "from": "底板價",
@@ -4517,6 +4735,12 @@
       "context": "@domain 網路",
       "english": "WAN (wide area network)",
       "exceptions": ["廣域網路"]
+    },
+    {
+      "from": "廣泛被認為",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution; name the source or drop"
     },
     {
       "from": "引出",
@@ -4628,6 +4852,12 @@
       "english": "posterior probability"
     },
     {
+      "from": "從某個角度來看",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.V2: hedging filler; delete"
+    },
+    {
       "from": "從某種角度來看",
       "to": [],
       "type": "ai_filler",
@@ -4677,6 +4907,13 @@
       "context": "@domain IT",
       "english": "micro-average",
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
+    },
+    {
+      "from": "必要性",
+      "to": ["必要"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "志願者",
@@ -4772,6 +5009,12 @@
       "english": "Sydney Opera House"
     },
     {
+      "from": "您說得完全正確",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C7: sycophantic chatbot filler; delete"
+    },
+    {
       "from": "情感發現",
       "to": ["情感偵測"],
       "type": "cross_strait",
@@ -4847,6 +5090,12 @@
       "type": "cross_strait",
       "context": "@domain UI。指將滑鼠指標暫時停留於畫面某處上",
       "english": "hover"
+    },
+    {
+      "from": "成功地",
+      "to": ["成功"],
+      "type": "translationese",
+      "context": "dewesternise.V8: 地 adverbial calque"
     },
     {
       "from": "成員函數",
@@ -4950,6 +5199,13 @@
       "english": "disrupt / sabotage"
     },
     {
+      "from": "打造",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature word when abstract",
+      "negative_context_clues": ["珠寶", "首飾", "金屬", "木工", "鐵匠"]
+    },
+    {
       "from": "打醬油",
       "to": ["湊熱鬧", "偶然路過"],
       "type": "cross_strait",
@@ -4964,6 +5220,14 @@
       "english": "open",
       "context_clues": ["檔案", "連結", "頁面", "視窗", "應用"],
       "negative_context_clues": ["心扉", "門窗", "窗戶", "大門"]
+    },
+    {
+      "from": "扮演",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V3: copula-as-verb cliché when paired with 角色",
+      "negative_context_clues": ["演員", "戲劇", "話劇", "電影", "舞台", "半導體", "產業", "技術", "核心", "系統", "架構", "平台"],
+      "positional_clues": ["before:角色"]
     },
     {
       "from": "批處理",
@@ -5229,6 +5493,18 @@
       "negative_context_clues": ["會議", "選舉", "比賽"]
     },
     {
+      "from": "提供支援",
+      "to": ["支援"],
+      "type": "translationese",
+      "context": "dewesternise.V10: weak verb + nominalization"
+    },
+    {
+      "from": "提前預告",
+      "to": ["預告"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
+    },
+    {
       "from": "插件",
       "to": ["外掛程式"],
       "type": "cross_strait",
@@ -5394,6 +5670,12 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "let oneself go"
+    },
+    {
+      "from": "政府們",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G5: 們 plural overuse on non-human noun"
     },
     {
       "from": "政治避難",
@@ -5808,6 +6090,13 @@
       "english": "bracket (square bracket)"
     },
     {
+      "from": "方法論",
+      "to": ["方法"],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature; prefer plain 方法 unless in philosophy context",
+      "negative_context_clues": ["哲學", "科學哲學", "認識論", "本體論", "研究"]
+    },
+    {
       "from": "旅遊局",
       "to": ["觀光局"],
       "type": "cross_strait",
@@ -5944,10 +6233,22 @@
       "english": "smartphone"
     },
     {
+      "from": "更好地",
+      "to": ["更好"],
+      "type": "translationese",
+      "context": "dewesternise.V8: 地 adverbial calque"
+    },
+    {
       "from": "更重要的是",
       "to": [""],
       "type": "ai_filler",
       "context": "AI transition filler phrase; delete or rephrase"
+    },
+    {
+      "from": "書們",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G5: 們 plural overuse on inanimate noun"
     },
     {
       "from": "最底層派生類",
@@ -6001,6 +6302,12 @@
       "english": "lossy compression"
     },
     {
+      "from": "有效地",
+      "to": ["有效"],
+      "type": "translationese",
+      "context": "dewesternise.V8: 地 adverbial calque"
+    },
+    {
       "from": "有機流量",
       "to": ["自然搜尋流量"],
       "type": "cross_strait",
@@ -6020,6 +6327,12 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "finite automaton"
+    },
+    {
+      "from": "有著",
+      "to": ["有"],
+      "type": "translationese",
+      "context": "dewesternise.V14: 有著 existential calque"
     },
     {
       "from": "服務員",
@@ -6218,6 +6531,14 @@
       "positional_clues": ["not_after:kernel", "not_after:Linux"]
     },
     {
+      "from": "格局",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C1: grandiose cliché when paired with 新/大/時代",
+      "context_clues": ["新", "大", "時代", "全新"],
+      "negative_context_clues": ["布局", "結構", "棋局", "格子"]
+    },
+    {
       "from": "格林納達",
       "to": ["格瑞那達"],
       "type": "cross_strait",
@@ -6360,6 +6681,13 @@
       "context": "@domain UI。cn「標籤頁」；tw 用「分頁標籤」或「分頁」(tab page)",
       "english": "tab",
       "context_clues": ["瀏覽器", "視窗", "開啟", "關閉", "切換"]
+    },
+    {
+      "from": "標誌著",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V3: copula-as-verb cliché",
+      "negative_context_clues": ["年代", "世紀", "歷史", "時期", "里程"]
     },
     {
       "from": "標識符",
@@ -6565,6 +6893,12 @@
       "english": "regular expression"
     },
     {
+      "from": "正在進行中",
+      "to": ["進行中"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
+    },
+    {
       "from": "正態分布",
       "to": ["常態分布"],
       "type": "cross_strait",
@@ -6711,6 +7045,12 @@
       "type": "cross_strait",
       "context": "@geo country (國名)",
       "english": "Mauritius"
+    },
+    {
+      "from": "毫無疑問",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C2: hollow assertion filler; delete"
     },
     {
       "from": "民政局",
@@ -6970,10 +7310,35 @@
       "english": "cold dish/appetizer"
     },
     {
+      "from": "深入地",
+      "to": ["深入"],
+      "type": "translationese",
+      "context": "dewesternise.V8: 地 adverbial calque"
+    },
+    {
+      "from": "深入探討",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché"
+    },
+    {
+      "from": "深刻地改變",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C1: grandiose adverbial cliché"
+    },
+    {
       "from": "深刻影響",
       "to": [],
       "type": "ai_filler",
       "context": "AI pattern indicator (深刻影響); flag but do not auto-fix — 深刻 encodes intensity that 影響 alone drops"
+    },
+    {
+      "from": "深厚的",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché when paired with 底蘊/基礎",
+      "positional_clues": ["before:底蘊", "before:基礎", "before:淵源"]
     },
     {
       "from": "混合現實",
@@ -7189,6 +7554,12 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "fried chicken cutlet"
+    },
+    {
+      "from": "為了實現這一目標",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.V6: filler; delete"
     },
     {
       "from": "烏茲別克斯坦",
@@ -7460,6 +7831,12 @@
       "english": "status bar"
     },
     {
+      "from": "獨特魅力",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché"
+    },
+    {
       "from": "獲得者",
       "to": ["得主"],
       "type": "cross_strait",
@@ -7533,6 +7910,13 @@
       "context_clues": ["運算", "表達式", "運算子", "C++", "編譯", "程式", "語法"]
     },
     {
+      "from": "生態系統",
+      "to": ["生態"],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature when used metaphorically for non-biological systems",
+      "negative_context_clues": ["生物", "動物", "植物", "森林", "海洋", "物種", "棲地"]
+    },
+    {
       "from": "生物標誌物",
       "to": ["生物標誌"],
       "type": "cross_strait",
@@ -7588,6 +7972,13 @@
       "type": "cross_strait",
       "context": "@domain IT。tw: 使用者層級執行緒, cn: 用戶級線程",
       "english": "user-level thread"
+    },
+    {
+      "from": "由於",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.V1: 由於...的原因 calque",
+      "positional_clues": ["before:的原因"]
     },
     {
       "from": "界面",
@@ -7653,6 +8044,14 @@
       "english": "asynchronous"
     },
     {
+      "from": "當",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G7: 當...的時候 calque; drop 當 or 的時候",
+      "negative_context_clues": ["每當", "正當", "適當", "便當"],
+      "positional_clues": ["before:的時候"]
+    },
+    {
       "from": "當且僅當",
       "to": ["若且唯若"],
       "type": "cross_strait",
@@ -7666,6 +8065,13 @@
       "context": "@domain IT。避免文言表述「當前」，改用「目前」消除歧異 (tw: 目前, cn: 當前)",
       "english": "current/currently",
       "context_clues": ["行程", "系統", "狀態", "執行", "核心", "記憶體", "CPU", "排程"]
+    },
+    {
+      "from": "當然可以",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.M1: sycophantic chatbot opener; delete",
+      "negative_context_clues": ["當然可以，", "當然可以。"]
     },
     {
       "from": "疊代",
@@ -7844,11 +8250,23 @@
       "english": "Direct Memory Access / DMA"
     },
     {
+      "from": "相互交流",
+      "to": ["交流"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
+    },
+    {
       "from": "相冊",
       "to": ["相簿"],
       "type": "cross_strait",
       "context": "@domain 社群",
       "english": "photo album"
+    },
+    {
+      "from": "相對而言",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.V2: hedging filler"
     },
     {
       "from": "真陰性",
@@ -8608,7 +9026,7 @@
       "from": "納米",
       "to": ["奈米"],
       "type": "cross_strait",
-      "context": "@domain 硬體。SI 長度單位 (10^-9 m)；製程技術語境最常見 (如 90奈米、7奈米製程)",
+      "context": "@domain 硬體。SI 長度單位 (10^-9 m)；製程技術語境最常見 (如 90 奈米、7 奈米製程)",
       "english": "nanometer/nm"
     },
     {
@@ -8692,6 +9110,19 @@
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
     },
     {
+      "from": "結構性變化",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C4: vague analysis cliché",
+      "negative_context_clues": ["經濟", "人口", "產業"]
+    },
+    {
+      "from": "給予協助",
+      "to": ["協助"],
+      "type": "translationese",
+      "context": "dewesternise.V10: weak verb + nominalization"
+    },
+    {
       "from": "統一意見",
       "to": ["共識"],
       "type": "cross_strait",
@@ -8714,6 +9145,12 @@
       "english": "bundle"
     },
     {
+      "from": "綜上所述",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C2: hollow summary filler; delete"
+    },
+    {
       "from": "綜合徵",
       "to": ["症候群"],
       "type": "cross_strait",
@@ -8726,6 +9163,13 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "green / organic food"
+    },
+    {
+      "from": "維度",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature word; prefer 面向/層面",
+      "negative_context_clues": ["向量", "矩陣", "tensor", "張量", "座標"]
     },
     {
       "from": "網上鄰居",
@@ -8916,6 +9360,12 @@
       "type": "variant",
       "context": "MoE 標準字體 (@example 韁繩)",
       "english": "rein (char variant)"
+    },
+    {
+      "from": "繼續延續",
+      "to": ["延續"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
     },
     {
       "from": "纔",
@@ -9230,6 +9680,19 @@
       "english": "top-down"
     },
     {
+      "from": "至關重要",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché"
+    },
+    {
+      "from": "致力於",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature cliché",
+      "negative_context_clues": ["公益", "研發", "教育", "永續", "服務", "慈善"]
+    },
+    {
       "from": "臺式機",
       "to": ["桌上型電腦"],
       "type": "cross_strait",
@@ -9242,6 +9705,13 @@
       "type": "cross_strait",
       "context": "@domain 社群",
       "english": "report (complaint)"
+    },
+    {
+      "from": "舉足輕重",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C1: grandiose cliché; rewrite as plain importance claim",
+      "negative_context_clues": ["輕重緩急"]
     },
     {
       "from": "航天",
@@ -9399,6 +9869,13 @@
       "english": "Montreal"
     },
     {
+      "from": "蓬勃發展",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché",
+      "negative_context_clues": ["產業", "經濟", "市場"]
+    },
+    {
       "from": "蔘",
       "to": ["參"],
       "type": "variant",
@@ -9418,6 +9895,13 @@
       "type": "cross_strait",
       "context": "@domain 硬體",
       "english": "blue screen (BSOD)"
+    },
+    {
+      "from": "藝術性",
+      "to": ["藝術"],
+      "type": "translationese",
+      "context": "dewesternise.V6: 性 suffix overuse",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "蘇裡南",
@@ -9568,6 +10052,45 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "passive smoking"
+    },
+    {
+      "from": "被廣泛認為",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G1: passive + vague attribution; rewrite as 大家普遍認為/公認"
+    },
+    {
+      "from": "被指出",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G1: passive voice; prefer 有人指出"
+    },
+    {
+      "from": "被稱為",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G1: passive voice; prefer 人稱/叫做",
+      "context_clues": ["廣泛", "普遍", "一般", "一致", "常"]
+    },
+    {
+      "from": "被視為",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G1: passive voice; prefer 當作/看成",
+      "context_clues": ["廣泛", "普遍", "一般", "一致", "常"]
+    },
+    {
+      "from": "被認為",
+      "to": [],
+      "type": "translationese",
+      "context": "dewesternise.G1: passive voice; rewrite as 大家認為/公認",
+      "context_clues": ["廣泛", "普遍", "一般", "一致", "常"]
+    },
+    {
+      "from": "被譽為",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution cliché"
     },
     {
       "from": "被重載的操作符",
@@ -9948,6 +10471,18 @@
       "context_clues": ["MIT", "GPL", "Apache", "開源", "授權"]
     },
     {
+      "from": "許多學者認為",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution; name specific scholars"
+    },
+    {
+      "from": "許多專家認為",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C3: vague attribution; name specific experts"
+    },
+    {
       "from": "註冊機",
       "to": ["序號產生器"],
       "type": "cross_strait",
@@ -10161,6 +10696,18 @@
       "english": "variable"
     },
     {
+      "from": "讓我來為你",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.M1: chatbot opener; delete"
+    },
+    {
+      "from": "豐富的文化底蘊",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C5: promotional cliché"
+    },
+    {
       "from": "貝寧",
       "to": ["貝南"],
       "type": "cross_strait",
@@ -10248,6 +10795,12 @@
       "context": "@domain 程式設計",
       "english": "assignment operator",
       "context_clues": ["運算", "表達式", "運算子", "C++", "編譯", "程式", "語法"]
+    },
+    {
+      "from": "賦能",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.V1: AI signature word (empower/enable)"
     },
     {
       "from": "質量",
@@ -10538,6 +11091,25 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "log out"
+    },
+    {
+      "from": "透過",
+      "to": ["藉由", "經由"],
+      "type": "translationese",
+      "context": "dewesternise.V3: 透過 used with abstract means — prefer 藉由/經由",
+      "negative_context_clues": ["玻璃", "縫隙", "窗戶", "屏幕", "布料", "紗窗", "驗證", "系統", "連結", "介面", "API", "機制", "網路"]
+    },
+    {
+      "from": "這一現象的背後",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C4: shallow analysis cliché"
+    },
+    {
+      "from": "這樣一個",
+      "to": ["這麼"],
+      "type": "translationese",
+      "context": "dewesternise.V9: 這樣一個 redundancy; replace with 這麼"
     },
     {
       "from": "通信",
@@ -10916,6 +11488,14 @@
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
     },
     {
+      "from": "里程碑",
+      "to": [],
+      "type": "ai_filler",
+      "context": "humanize.C1: grandiose cliché; avoid unless literal milestone marker",
+      "context_clues": ["重大", "歷史", "時代", "劃時代"],
+      "negative_context_clues": ["公里", "路碑", "石碑", "專案", "專案管理", "版本"]
+    },
+    {
       "from": "重命名",
       "to": ["重新命名"],
       "type": "cross_strait",
@@ -10950,6 +11530,13 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "reinstall"
+    },
+    {
+      "from": "重視度",
+      "to": ["重視"],
+      "type": "translationese",
+      "context": "dewesternise.S2: scientific calque",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "重載",
@@ -11188,6 +11775,13 @@
       "context": "@domain 社群。「關注」偏指 pay attention to，社群媒體語境語意不同",
       "english": "follow/subscribe",
       "context_clues": ["訂閱", "帳號", "貼文", "社群", "粉絲", "推特", "臉書", "IG", "YT", "追蹤者"]
+    },
+    {
+      "from": "關注程度",
+      "to": ["關注"],
+      "type": "translationese",
+      "context": "dewesternise.S2: scientific calque",
+      "negative_context_clues": ["論文", "研究", "分析", "評估"]
     },
     {
       "from": "阿司匹林",
@@ -11531,6 +12125,12 @@
       "english": "static library"
     },
     {
+      "from": "非常棒的觀點",
+      "to": [""],
+      "type": "ai_filler",
+      "context": "humanize.C7: sycophantic chatbot filler; delete"
+    },
+    {
       "from": "面向對象",
       "to": ["物件導向"],
       "type": "cross_strait",
@@ -11626,6 +12226,12 @@
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "sequential container"
+    },
+    {
+      "from": "預先準備",
+      "to": ["準備"],
+      "type": "translationese",
+      "context": "dewesternise.S1: semantic overlap"
     },
     {
       "from": "預分配",

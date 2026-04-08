@@ -45,6 +45,10 @@ pub enum MatchPredicate {
     /// Maps to RuleType::AiFiller gate.
     RequireAiFillerDetection,
 
+    /// Rule fires only when translationese detection is enabled.
+    /// Maps to RuleType::Translationese gate.
+    RequireTranslationeseDetection,
+
     /// Rule fires only when the political stance config allows it.
     /// Maps to RuleType::PoliticalColoring gate.
     RequireStanceAllow,
@@ -313,6 +317,9 @@ pub fn compile_rule_predicates(
     if rule.rule_type == RuleType::AiFiller {
         preds.push(MatchPredicate::RequireAiFillerDetection);
     }
+    if rule.rule_type == RuleType::Translationese {
+        preds.push(MatchPredicate::RequireTranslationeseDetection);
+    }
     if rule.rule_type == RuleType::PoliticalColoring {
         preds.push(MatchPredicate::RequireStanceAllow);
     }
@@ -422,6 +429,11 @@ pub fn eval_predicates(
             }
             MatchPredicate::RequireAiFillerDetection => {
                 if !ctx.cfg.ai_filler_detection {
+                    return None;
+                }
+            }
+            MatchPredicate::RequireTranslationeseDetection => {
+                if !ctx.cfg.translationese_detection {
                     return None;
                 }
             }
@@ -622,6 +634,7 @@ fn inflate_spelling_issues_inner(
 pub struct ProfileFilter {
     pub exclude_variant: bool,
     pub exclude_ai_filler: bool,
+    pub exclude_translationese: bool,
 }
 
 impl ProfileFilter {
@@ -630,6 +643,7 @@ impl ProfileFilter {
         Self {
             exclude_variant: false,
             exclude_ai_filler: false,
+            exclude_translationese: false,
         }
     }
 
@@ -639,6 +653,7 @@ impl ProfileFilter {
         Self {
             exclude_variant: !cfg.variant_normalization,
             exclude_ai_filler: !cfg.ai_filler_detection,
+            exclude_translationese: !cfg.translationese_detection,
         }
     }
 }
@@ -685,12 +700,15 @@ pub fn compile_spelling_rules_filtered(
     // Profile-aware filtering: exclude rule types that the target profile
     // would always fast-reject.  Runs after dedup to preserve last-wins
     // semantics.
-    if filter.exclude_variant || filter.exclude_ai_filler {
+    if filter.exclude_variant || filter.exclude_ai_filler || filter.exclude_translationese {
         spelling_rules.retain(|r| {
             if filter.exclude_variant && r.rule_type == RuleType::Variant {
                 return false;
             }
             if filter.exclude_ai_filler && r.rule_type == RuleType::AiFiller {
+                return false;
+            }
+            if filter.exclude_translationese && r.rule_type == RuleType::Translationese {
                 return false;
             }
             true

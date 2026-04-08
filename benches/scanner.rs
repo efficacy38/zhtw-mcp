@@ -470,6 +470,7 @@ fn bench_cpu_attribution_100kb(c: &mut Criterion) {
         range_en_dash: false,
         grammar_checks: false,
         ai_filler_detection: false,
+        translationese_detection: false,
         ai_semantic_safety: false,
         ai_density_detection: false,
         ai_structural_patterns: false,

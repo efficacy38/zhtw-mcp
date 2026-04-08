@@ -387,10 +387,11 @@ impl Server {
         let verify = parse_verify(args);
 
         let stance_name = stance.unwrap_or(PoliticalStance::RocCentric).name();
-        let detect_ai = args
-            .get("detect_ai")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        // Explicit bool overrides default; absent means inherit profile default.
+        // Default profile now enables both ai_filler_detection and
+        // translationese_detection (53.x initiative).
+        let detect_ai_opt = args.get("detect_ai").and_then(|v| v.as_bool());
+        let detect_translationese_opt = args.get("detect_translationese").and_then(|v| v.as_bool());
         let ai_threshold = optional_str_validated(args, "ai_threshold", &id)?;
 
         let relaxed = args
@@ -434,11 +435,19 @@ impl Server {
         if let Some(st) = stance {
             cfg = cfg.with_stance(st);
         }
+        // Translationese toggle (explicit override wins over profile default).
+        if let Some(b) = detect_translationese_opt {
+            cfg.translationese_detection = b;
+        }
+        // Resolve effective AI detection: explicit arg wins over profile default.
+        // All four AI sub-flags move as a unit — enabling detection turns them
+        // all on, disabling turns them all off.
+        let detect_ai = detect_ai_opt.unwrap_or(cfg.ai_filler_detection);
+        cfg.ai_filler_detection = detect_ai;
+        cfg.ai_semantic_safety = detect_ai;
+        cfg.ai_density_detection = detect_ai;
+        cfg.ai_structural_patterns = detect_ai;
         if detect_ai {
-            cfg.ai_filler_detection = true;
-            cfg.ai_semantic_safety = true;
-            cfg.ai_density_detection = true;
-            cfg.ai_structural_patterns = true;
             // Apply threshold level: low=0.5 (sensitive), medium=1.0, high=1.5 (conservative).
             cfg.ai_threshold_multiplier = match ai_threshold {
                 Some("low") => 0.5,
@@ -925,6 +934,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "verify",
             "output",
             "detect_ai",
+            "detect_translationese",
             "ai_threshold",
             "include_telemetry",
             "include_stats",
@@ -946,6 +956,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "fix_output",
             "output",
             "detect_ai",
+            "detect_translationese",
             "ai_threshold",
             "include_telemetry",
             "include_stats",
@@ -1376,6 +1387,20 @@ fn build_explanation(issue: &Issue) -> Option<String> {
                 parts.push("Consider removing or rephrasing.".to_string());
             }
         }
+        IssueType::Translationese => {
+            if let Some(ctx) = &issue.context {
+                parts.push(format!("'{}' — {}.", issue.found, ctx));
+            }
+            if !issue.suggestions.is_empty() {
+                let sugg = issue.suggestions.join(" / ");
+                parts.push(format!("Suggested rewrite: {sugg}."));
+            } else {
+                parts.push(
+                    "Translationese / 歐化 pattern; consider an idiomatic zh-TW rewrite."
+                        .to_string(),
+                );
+            }
+        }
         IssueType::Repetition => {
             if is_spaced_acronym_issue(issue) {
                 parts.push(format!(
@@ -1392,9 +1417,13 @@ fn build_explanation(issue: &Issue) -> Option<String> {
         }
     }
 
-    // Grammar and AiStyle issues already embed context in the main explanation;
-    // skip the shared Context: append to avoid duplication.
-    if !matches!(issue.rule_type, IssueType::Grammar | IssueType::AiStyle) {
+    // Grammar, AiStyle, and Translationese issues already embed context in
+    // the main explanation; skip the shared Context: append to avoid
+    // duplication.
+    if !matches!(
+        issue.rule_type,
+        IssueType::Grammar | IssueType::AiStyle | IssueType::Translationese
+    ) {
         if let Some(ctx) = &issue.context {
             parts.push(format!("Context: {ctx}"));
         }
@@ -2441,7 +2470,11 @@ fn tool_definitions() -> Vec<ToolDef> {
             }));
             props.insert("detect_ai".into(), json!({
                 "type": "boolean",
-                "description": "Enable AI writing artifact detection (density + grammar patterns) regardless of profile"
+                "description": "Enable AI writing artifact detection (density + grammar patterns). Default: on. Set false to suppress AI filler findings."
+            }));
+            props.insert("detect_translationese".into(), json!({
+                "type": "boolean",
+                "description": "Enable translationese (翻譯腔 / 歐化) detection — Europeanized syntax and calques from the dewesternise checklist. Default: on. Orthogonal to detect_ai; reported separately."
             }));
             props.insert("ai_threshold".into(), json!({
                 "type": "string",
@@ -2555,6 +2588,29 @@ mod tests {
         assert!(explanation.contains("CPU"));
         assert!(explanation.contains("transcription artifact"));
         assert!(!explanation.contains("consecutive duplicate"));
+    }
+
+    #[test]
+    fn build_explanation_for_translationese_does_not_duplicate_context() {
+        // Regression: the main Translationese arm already appends the
+        // context, so the shared "Context:" tail must be suppressed for
+        // this issue type or the narrative gets repeated.
+        let issue = Issue::new(
+            0,
+            3,
+            "透過",
+            vec!["藉由".into(), "經由".into()],
+            IssueType::Translationese,
+            Severity::Info,
+        )
+        .with_context("dewesternise.V3: abstract-means calque; prefer 藉由");
+        let explanation = build_explanation(&issue).expect("explanation");
+        assert_eq!(
+            explanation.matches("dewesternise.V3").count(),
+            1,
+            "context must appear exactly once: {explanation}"
+        );
+        assert!(explanation.contains("Suggested rewrite"));
     }
 
     #[test]

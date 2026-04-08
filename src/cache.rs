@@ -52,6 +52,8 @@ pub struct ScanParams {
     pub fix_mode: String,
     // Whether AI detection is active — changes scan results.
     pub detect_ai: bool,
+    // Whether translationese detection is active — changes scan results.
+    pub detect_translationese: bool,
     // AI threshold level (formatted f32) — different multipliers produce different results.
     pub ai_threshold: String,
 }
@@ -319,6 +321,12 @@ fn fast_key(file_path: &str, params: &ScanParams) -> String {
     hasher.update(b"\0");
     hasher.update(if params.detect_ai { b"ai" } else { b"" });
     hasher.update(b"\0");
+    hasher.update(if params.detect_translationese {
+        b"trans"
+    } else {
+        b""
+    });
+    hasher.update(b"\0");
     hasher.update(params.ai_threshold.as_bytes());
     hasher.finalize().to_hex()[..32].to_string()
 }
@@ -388,6 +396,7 @@ mod tests {
             content_type: "md".into(),
             fix_mode: "none".into(),
             detect_ai: false,
+            detect_translationese: false,
             ai_threshold: "1.0".into(),
         }
     }
@@ -399,6 +408,7 @@ mod tests {
             content_type: "plain".into(),
             fix_mode: "none".into(),
             detect_ai: false,
+            detect_translationese: false,
             ai_threshold: "1.0".into(),
         }
     }

@@ -44,6 +44,7 @@ enum RuleType {
     Confusable,
     Variant,
     AiFiller,
+    Translationese,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

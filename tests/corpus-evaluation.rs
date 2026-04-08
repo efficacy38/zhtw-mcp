@@ -101,6 +101,8 @@ fn parse_issue_type(name: &str) -> IssueType {
         "variant" => IssueType::Variant,
         "grammar" => IssueType::Grammar,
         "ai_style" => IssueType::AiStyle,
+        "repetition" => IssueType::Repetition,
+        "translationese" => IssueType::Translationese,
         _ => panic!("unknown issue type: {name}"),
     }
 }

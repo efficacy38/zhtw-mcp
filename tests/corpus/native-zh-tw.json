@@ -106,15 +106,15 @@
     {
       "id": "native_situation_phrase",
       "repeat": 30,
-      "input": "在這種情況下，我們必須重新評估策略並尋求替代方案。",
-      "expected_fixed": "在這種情況下，我們必須重新評估策略並尋求替代方案。",
+      "input": "部署流程若出現錯誤，維運小組會立即還原版本並通知相關團隊。",
+      "expected_fixed": "部署流程若出現錯誤，維運小組會立即還原版本並通知相關團隊。",
       "expected_issues": []
     },
     {
       "id": "native_process_phrase",
       "repeat": 30,
-      "input": "在這個過程中，團隊展現了高度的凝聚力與專業素養。",
-      "expected_fixed": "在這個過程中，團隊展現了高度的凝聚力與專業素養。",
+      "input": "跨部門協作讓整個交付流程加速，每週的檢討會議也能聚焦真正的瓶頸。",
+      "expected_fixed": "跨部門協作讓整個交付流程加速，每週的檢討會議也能聚焦真正的瓶頸。",
       "expected_issues": []
     },
     {

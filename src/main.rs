@@ -79,6 +79,7 @@ fn main() -> Result<()> {
     let mut explain = false;
     let mut relaxed = false;
     let mut detect_ai = false;
+    let mut detect_translationese = false;
     let mut ai_threshold_multiplier: f32 = 1.0;
     let mut baseline_path: Option<PathBuf> = None;
     let mut update_baseline = false;
@@ -233,6 +234,34 @@ fn main() -> Result<()> {
                                         i += 1;
                                     }
                                     _ => {} // not a threshold level, leave for next iteration
+                                }
+                            }
+                        }
+                        "--detect-translationese" => {
+                            detect_translationese = true;
+                        }
+                        "--detect-style" => {
+                            // Combined shorthand: enable both AI filler and
+                            // translationese detection.  Scores remain
+                            // orthogonal — reported side by side, never merged.
+                            detect_ai = true;
+                            detect_translationese = true;
+                            // Keep the same optional threshold syntax as --detect-ai.
+                            if let Some(next) = args.get(i + 1) {
+                                match next.as_str() {
+                                    "low" => {
+                                        ai_threshold_multiplier = 0.5;
+                                        i += 1;
+                                    }
+                                    "medium" => {
+                                        ai_threshold_multiplier = 1.0;
+                                        i += 1;
+                                    }
+                                    "high" => {
+                                        ai_threshold_multiplier = 1.5;
+                                        i += 1;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -538,6 +567,7 @@ fn main() -> Result<()> {
             verify,
             relaxed: eff_relaxed,
             detect_ai,
+            detect_translationese,
             ai_threshold_multiplier,
             tm_path: Some(eff_tm_path),
             telemetry,
@@ -728,6 +758,7 @@ struct LintBatchParams<'a> {
     verify: bool,
     relaxed: bool,
     detect_ai: bool,
+    detect_translationese: bool,
     ai_threshold_multiplier: f32,
     tm_path: Option<PathBuf>,
     telemetry: bool,
@@ -753,6 +784,9 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
         cfg.ai_density_detection = true;
         cfg.ai_structural_patterns = true;
         cfg.ai_threshold_multiplier = params.ai_threshold_multiplier;
+    }
+    if params.detect_translationese {
+        cfg.translationese_detection = true;
     }
 
     // Build scanner once for all files, merging overrides + active packs.
@@ -860,6 +894,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             content_type: format!("{content_type:?}"),
             fix_mode: fix_mode_str.clone(),
             detect_ai: params.detect_ai,
+            detect_translationese: cfg.translationese_detection,
             ai_threshold: format!("{:.1}", params.ai_threshold_multiplier),
         };
 

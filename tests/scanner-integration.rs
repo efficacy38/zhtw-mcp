@@ -911,9 +911,25 @@ fn ai_filler_rule(from: &str, to: &[&str]) -> SpellingRule {
 fn ai_filler_rules_suppressed_in_base_profile() {
     let rules = vec![ai_filler_rule("值得注意的是，", &[""])];
     let scanner = Scanner::new(rules, vec![]);
+
+    // Base profile enables ai_filler_detection by default (53.x initiative).
     let output =
         scanner.scan_with_config("值得注意的是，系統需要重啟", &[], Profile::Base.config());
-    // Base profile has ai_filler_detection: false → no issues.
+    let ai_issues: Vec<_> = output
+        .issues
+        .iter()
+        .filter(|i| i.rule_type == IssueType::AiStyle)
+        .collect();
+    assert_eq!(
+        ai_issues.len(),
+        1,
+        "AI filler should fire under default Base profile"
+    );
+
+    // Explicitly disabling the toggle gates the rule off.
+    let mut cfg = Profile::Base.config();
+    cfg.ai_filler_detection = false;
+    let output = scanner.scan_with_config("值得注意的是，系統需要重啟", &[], cfg);
     let ai_issues: Vec<_> = output
         .issues
         .iter()
@@ -921,7 +937,7 @@ fn ai_filler_rules_suppressed_in_base_profile() {
         .collect();
     assert!(
         ai_issues.is_empty(),
-        "default profile should suppress AI filler rules"
+        "AI filler should be gated when explicitly disabled"
     );
 }
 
