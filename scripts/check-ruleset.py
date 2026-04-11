@@ -454,6 +454,7 @@ VALID_DOMAINS = {
     "生物學",
     "能源",
     "材料",
+    "線性代數",
 }
 
 # Valid @geo sub-types.

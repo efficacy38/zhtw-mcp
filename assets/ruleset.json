@@ -1749,8 +1749,10 @@
       "from": "函子",
       "to": ["仿函式"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
-      "english": "functor"
+      "context": "@domain 程式設計。範疇論 (category theory) 的「函子」為正確數學術語，不應更正",
+      "english": "functor",
+      "context_clues": ["C++", "編譯", "程式", "語法", "STL", "模板", "樣板", "多載", "重載"],
+      "negative_context_clues": ["範疇", "範疇論", "態射", "自然變換", "Hom", "伴隨函子", "遺忘函子"]
     },
     {
       "from": "函式",
@@ -1986,6 +1988,14 @@
       "type": "cross_strait",
       "context": "@domain 資料結構",
       "english": "marshal"
+    },
+    {
+      "from": "初等矩陣",
+      "to": ["基本矩陣"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數",
+      "english": "elementary matrix",
+      "context_clues": ["矩陣", "行列式", "列運算", "行變換", "消去", "高斯"]
     },
     {
       "from": "利比裡亞",
@@ -2571,6 +2581,13 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "award-winning product"
+    },
+    {
+      "from": "古典概型",
+      "to": ["古典機率模型"],
+      "type": "cross_strait",
+      "context": "@domain 數學",
+      "english": "classical probability model"
     },
     {
       "from": "句柄",
@@ -3297,6 +3314,14 @@
       "context_clues": ["作業系統", "行程", "執行緒", "排程", "OS"]
     },
     {
+      "from": "坐標系",
+      "to": ["座標系統", "座標系"],
+      "type": "cross_strait",
+      "context": "@domain 數學。cn「坐標」= tw「座標」；cn「系」= tw「系統」",
+      "english": "coordinate system",
+      "context_clues": ["直角", "極", "笛卡兒", "卡氏", "向量", "平面"]
+    },
+    {
       "from": "坐落於",
       "to": [],
       "type": "ai_filler",
@@ -3358,6 +3383,13 @@
       "type": "cross_strait",
       "context": "@domain 教育",
       "english": "training"
+    },
+    {
+      "from": "基向量",
+      "to": ["基底向量"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數",
+      "english": "basis vector"
     },
     {
       "from": "基因組",
@@ -3655,6 +3687,13 @@
       "english": "show off"
     },
     {
+      "from": "大衍求一術",
+      "to": ["中國剩餘定理"],
+      "type": "cross_strait",
+      "context": "@domain 數學。秦九韶《數書九章》中的同餘求解法，tw 通稱「中國剩餘定理」",
+      "english": "Chinese remainder theorem"
+    },
+    {
       "from": "大醬",
       "to": ["味噌"],
       "type": "cross_strait",
@@ -3927,6 +3966,13 @@
       "type": "cross_strait",
       "context": "orphan process；「程序」此處指 process (@seealso 程序管理)",
       "english": "orphan process"
+    },
+    {
+      "from": "孫子剩餘定理",
+      "to": ["中國剩餘定理"],
+      "type": "cross_strait",
+      "context": "@domain 數學。cn「孫子定理」= tw「中國剩餘定理」(CRT)",
+      "english": "Chinese remainder theorem"
     },
     {
       "from": "學習和工作",
@@ -4559,6 +4605,13 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "Boolean"
+    },
+    {
+      "from": "布爾代數",
+      "to": ["布林代數"],
+      "type": "cross_strait",
+      "context": "@domain 數學",
+      "english": "Boolean algebra"
     },
     {
       "from": "布爾值",
@@ -6604,6 +6657,13 @@
       "english": "sauna"
     },
     {
+      "from": "條形圖",
+      "to": ["長條圖"],
+      "type": "cross_strait",
+      "context": "@domain 數學",
+      "english": "bar chart"
+    },
+    {
       "from": "條形碼",
       "to": ["條碼"],
       "type": "cross_strait",
@@ -6704,6 +6764,14 @@
       "english": "standard library"
     },
     {
+      "from": "標準正交",
+      "to": ["單範正交"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數",
+      "english": "orthonormal",
+      "context_clues": ["矩陣", "向量", "基底", "基", "空間", "正交化"]
+    },
+    {
       "from": "標簽頁",
       "to": ["分頁"],
       "type": "cross_strait",
@@ -6737,7 +6805,7 @@
       "from": "標量",
       "to": ["純量"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
+      "context": "@domain 數學。亦適用於程式設計、物理",
       "english": "scalar"
     },
     {
@@ -7316,6 +7384,14 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "oyster omelet"
+    },
+    {
+      "from": "消元法",
+      "to": ["消去法"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數",
+      "english": "elimination",
+      "context_clues": ["高斯", "矩陣", "線性", "方程組", "列運算"]
     },
     {
       "from": "消息",
@@ -8306,6 +8382,14 @@
       "context": "humanize.V2: hedging filler"
     },
     {
+      "from": "相抵",
+      "to": ["等價"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數。矩陣等價 (equivalent)；非日常「相抵」(抵消)",
+      "english": "equivalent",
+      "context_clues": ["矩陣", "線性", "列運算", "行變換", "秩"]
+    },
+    {
       "from": "真陰性",
       "to": ["正確負例"],
       "type": "cross_strait",
@@ -8982,8 +9066,10 @@
       "from": "算子",
       "to": ["運算子"],
       "type": "cross_strait",
-      "context": "@domain 程式設計",
+      "context": "@domain 程式設計。數學領域「算子」(微分算子、哈密頓算子等) 為正確術語，不應更正",
       "english": "operator",
+      "context_clues": ["運算", "表達式", "運算子", "C++", "編譯", "程式", "語法", "多載", "重載"],
+      "negative_context_clues": ["微分算子", "積分算子", "哈密頓", "拉普拉斯", "線性算子", "投影算子", "梯度算子", "散度算子", "旋度算子", "厄米算子", "自伴算子", "么正算子", "泛函", "量子", "算符"],
       "exceptions": ["運算子"]
     },
     {
@@ -10310,6 +10396,13 @@
       "context": "@domain IT",
       "english": "normalization",
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
+    },
+    {
+      "from": "規範方陣",
+      "to": ["正規矩陣"],
+      "type": "cross_strait",
+      "context": "@domain 線性代數",
+      "english": "normal matrix"
     },
     {
       "from": "視圖",
@@ -11974,6 +12067,13 @@
       "context_clues": ["影響", "不過", "能夠", "需要", "只要", "只好"]
     },
     {
+      "from": "集合的勢",
+      "to": ["集合的基數"],
+      "type": "cross_strait",
+      "context": "@domain 數學",
+      "english": "cardinality of a set"
+    },
+    {
       "from": "集成",
       "to": ["整合"],
       "type": "cross_strait",
@@ -12044,6 +12144,15 @@
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "binary function"
+    },
+    {
+      "from": "雙射",
+      "to": ["對射"],
+      "type": "cross_strait",
+      "context": "@domain 數學",
+      "english": "bijection",
+      "context_clues": ["函數", "函式", "映射", "集合", "單射", "滿射"],
+      "negative_context_clues": ["雙射射出", "雙射成型", "雙射模具", "雙射機"]
     },
     {
       "from": "雙核心",

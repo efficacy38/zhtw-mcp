@@ -167,6 +167,40 @@ fn namespace_not_flagged() {
     );
 }
 
+#[test]
+fn row_column_vector_terms_not_swapped() {
+    // 列/行 terms are valid Taiwanese terms in row/column contexts.
+    // Generic math clues cannot prove the author meant the PRC sense, and
+    // swapping them can reverse the mathematical meaning.
+    let scanner = full_scanner();
+    let issues = scanner
+        .scan("矩陣的每一列可視為列向量；矩陣的每一行可視為行向量。初等列變換與初等行變換不同。")
+        .issues;
+    assert!(
+        issues.iter().all(|i| {
+            !matches!(
+                i.found.as_str(),
+                "列向量" | "行向量" | "初等列變換" | "初等行變換"
+            )
+        }),
+        "row/column terms must not be swapped, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn standard_composite_function_term_not_flagged() {
+    // 合成函數 is standard mathematical usage in Taiwan; do not rewrite the
+    // 合成 prefix to 複合 solely because 函數 is nearby.
+    let scanner = full_scanner();
+    let issues = scanner.scan("合成函數是函數之間的標準運算。").issues;
+    assert!(
+        issues.iter().all(|i| i.found != "合成"),
+        "合成函數 must not be flagged, got {:?}",
+        issues.iter().map(|i| &i.found).collect::<Vec<_>>()
+    );
+}
+
 // Profile interaction: strict catches all + variants
 #[test]
 fn political_nouns_fire_under_all_profiles() {
