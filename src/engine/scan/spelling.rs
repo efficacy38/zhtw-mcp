@@ -628,4 +628,216 @@ mod tests {
             "non-ASR confusable should not trigger asr_artifacts flag"
         );
     }
+
+    // -- math "函數" must NOT be rewritten to "函式" --------------------------
+
+    #[test]
+    fn math_function_not_rewritten_elementary() {
+        let scanner = make_scanner();
+        let text = "初等函數是由基本運算組合而成的函數";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math term '初等函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_trig() {
+        let scanner = make_scanner();
+        let text = "三角函數包含正弦與餘弦";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math term '三角函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_inverse() {
+        let scanner = make_scanner();
+        let text = "反函數的定義域和值域互換";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math term '反函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_composite() {
+        let scanner = make_scanner();
+        let text = "合成函數 f(g(x)) 的導函數可用鏈鎖律求得";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math terms '合成函數'/'導函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_exp_log() {
+        let scanner = make_scanner();
+        let text = "指數函數和對數函數互為反函數";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math terms '指數函數'/'對數函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_pdf_cdf() {
+        let scanner = make_scanner();
+        let text = "機率密度函數描述連續隨機變數的分佈函數";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math terms '機率密度函數'/'分佈函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_functional_analysis() {
+        let scanner = make_scanner();
+        let text = "函數分析是數學的一個分支";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math term '函數分析' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_function_not_rewritten_continuous() {
+        let scanner = make_scanner();
+        let text = "設 f 為一連續函數，其定義域為實數";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "math term '連續函數' must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn programming_function_still_flagged() {
+        let scanner = make_scanner();
+        let text = "編譯器會呼叫這個函數來處理程式碼";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().any(|i| i.found == "函數"),
+            "programming context '函數' must still be flagged: {issues:?}"
+        );
+    }
+
+    // -- "函式" in programming context must NOT be rewritten to "函數" --------
+
+    #[test]
+    fn hanshi_not_rewritten_when_programming_clues_present() {
+        // "函式" is correct for programming; math clues nearby must not
+        // override when programming clues also appear.
+        let scanner = make_scanner();
+        let text = "在程式碼中計算三角函數的函式";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函式"),
+            "'函式' in programming context must not be rewritten: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn hanshi_not_rewritten_with_return_value() {
+        let scanner = make_scanner();
+        let text = "此函式計算 sin cos 值後回傳結果";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函式"),
+            "'函式' with '回傳' must not be rewritten to 函數: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn hanshi_not_rewritten_with_declaration() {
+        let scanner = make_scanner();
+        let text = "在 C 語言中宣告一個計算三角函數的函式";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函式"),
+            "'函式' with '宣告' must not be rewritten to 函數: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn math_hanshi_still_rewritten_with_parameters_and_variables() {
+        let scanner = make_scanner();
+        let text = "在數學中，函式的參數與變數可以表示為 x";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().any(|i| i.found == "函式"),
+            "math '函式' must still be rewritten near shared math terms: {issues:?}"
+        );
+    }
+
+    // -- mixed context: math compound "函數" must survive near programming clues
+
+    #[test]
+    fn math_compound_survives_mixed_context() {
+        // "三角函數" is a math proper noun even when programming clues exist.
+        let scanner = make_scanner();
+        let text = "在程式碼中計算三角函數的函式";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "'三角函數' must not be rewritten even near programming clues: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn hanshu_diaoyon_fires_in_programming() {
+        // "函數調用→函式呼叫" only in programming context.
+        // Math evaluates (代入/求值), never calls (呼叫).
+        let scanner = make_scanner();
+        let text = "編譯器的函數調用機制很重要";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().any(|i| i.found == "函數調用"),
+            "'函數調用' in programming context must be flagged: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn hanshu_diaoyon_silent_without_programming_clues() {
+        // Without programming clues, "函數調用" should not fire.
+        let scanner = make_scanner();
+        let text = "函數調用的概念";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            !issues.iter().any(|i| i.found == "函數調用"),
+            "'函數調用' without programming clues must not fire: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn hanshu_diaoyon_silent_inside_math_compound() {
+        let scanner = make_scanner();
+        let text = "程式中的三角函數調用";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            !issues.iter().any(|i| i.found == "函數調用"),
+            "math compound '三角函數調用' must not rewrite inner 函數調用: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn ambiguous_context_math_vetoes_standalone_hanshu() {
+        // When both programming and math clues coexist, negative clues
+        // veto the 函數->函式 rule for standalone 函數.
+        let scanner = make_scanner();
+        let text = "用程式碼呼叫函數來求解微積分";
+        let issues = scanner.scan(text).issues;
+        assert!(
+            issues.iter().all(|i| i.found != "函數"),
+            "mixed context: math clue should veto 函數->函式: {issues:?}"
+        );
+    }
 }
