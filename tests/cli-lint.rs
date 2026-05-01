@@ -888,3 +888,205 @@ fn cli_lint_detect_ai_enables_density_detection() {
         "--detect-ai should report ai_style density issues: {stdout_ai}"
     );
 }
+
+#[test]
+fn cli_lint_detect_style_emits_three_axis_scorecard() {
+    // --detect-style produces a three-axis scorecard
+    // (ai / translationese / consistency).  All three axes are reported
+    // side by side and never collapsed into a single number.
+    let text = "策略的實施帶來了效率的提升。實際上基本上每個人都同意。\
+                這是 20 世紀最重要的發現之一。當我抵達公司的時候，他已經在開會了。";
+    let output = run_lint_stdin(&["--detect-style", "--format", "json"], text);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("--detect-style emits valid JSON");
+
+    let scorecard = json
+        .get("style_scorecard")
+        .expect("style_scorecard present with --detect-style");
+    let scores = scorecard
+        .get("style_scores")
+        .expect("style_scorecard.style_scores present");
+    // Three orthogonal axes: at least one of the three carries a score.
+    let has_any = ["ai", "translationese", "consistency"]
+        .iter()
+        .any(|axis| scores.get(*axis).is_some());
+    assert!(has_any, "scorecard must emit at least one axis");
+
+    // Three scores are reported as separate fields — not combined.
+    let ai = scores.get("ai");
+    let trans = scores.get("translationese");
+    let consistency = scores.get("consistency");
+    assert!(
+        ai.is_some() || trans.is_some() || consistency.is_some(),
+        "axes reported individually, never collapsed"
+    );
+    // No top-level composite "score" / "overall" field.
+    assert!(scores.get("score").is_none());
+    assert!(scores.get("overall").is_none());
+
+    // top_issues_per_axis present with three keys.
+    let top = scorecard
+        .get("top_issues_per_axis")
+        .expect("top_issues_per_axis present");
+    for axis in ["ai", "translationese", "consistency"] {
+        assert!(top.get(axis).is_some(), "top_issues_per_axis.{axis}");
+    }
+}
+
+#[test]
+fn cli_lint_default_format_omits_scorecard() {
+    // Without --detect-style the scorecard is omitted entirely.
+    let output = run_lint_stdin(&["--format", "json"], "正確的軟體");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("default JSON valid");
+    assert!(
+        json.get("style_scorecard").is_none(),
+        "scorecard absent without --detect-style: {stdout}"
+    );
+}
+
+#[test]
+fn cli_lint_detect_style_preserves_translationese_axis_after_baseline_filtering() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("style.txt");
+    let baseline = dir.path().join("baseline.json");
+    let text = "這是 20 世紀最重要的發現之一。當我抵達公司的時候，他已經在開會了。".repeat(8);
+    std::fs::write(&file, &text).unwrap();
+
+    let update = run_lint_args(&[
+        file.to_str().unwrap(),
+        "--format",
+        "json",
+        "--detect-style",
+        "--baseline",
+        baseline.to_str().unwrap(),
+        "--update-baseline",
+    ]);
+    assert!(update.status.success(), "baseline update should succeed");
+
+    let output = run_lint_args(&[
+        file.to_str().unwrap(),
+        "--format",
+        "json",
+        "--detect-style",
+        "--baseline",
+        baseline.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "baseline-filtered lint should succeed"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("baseline-filtered JSON output");
+    assert_eq!(
+        json["issues"].as_array().map(|issues| issues.len()),
+        Some(0),
+        "baseline should remove all visible issues: {stdout}"
+    );
+    assert_eq!(
+        json["style_scorecard"]["top_issues_per_axis"]["translationese"]
+            .as_array()
+            .map(|issues| issues.len()),
+        Some(0),
+        "translationese top issues should match the filtered output: {stdout}"
+    );
+    let signature_score = json["translationese_signature"]["score"]
+        .as_f64()
+        .expect("translationese signature score present");
+    let axis_score = json["style_scorecard"]["style_scores"]["translationese"]
+        .as_f64()
+        .expect("translationese axis present");
+    assert!(
+        signature_score > 0.0,
+        "translationese signature should stay non-zero for this fixture: {stdout}"
+    );
+    assert_eq!(
+        axis_score, signature_score,
+        "document-level translationese axis should match the signature even when issues are filtered: {stdout}"
+    );
+}
+
+#[test]
+fn cli_lint_detect_style_preserves_consistency_on_cache_hits() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("style-cache.txt");
+    std::fs::write(&file, "這個軟件的服務器內存不夠").unwrap();
+
+    let first = run_lint_args(&[file.to_str().unwrap(), "--format", "json", "--detect-style"]);
+    assert!(first.status.success(), "initial lint should succeed");
+
+    let second = run_lint_args(&[file.to_str().unwrap(), "--format", "json", "--detect-style"]);
+    assert!(second.status.success(), "cached lint should succeed");
+
+    let first_stdout = String::from_utf8_lossy(&first.stdout);
+    let first_json: serde_json::Value =
+        serde_json::from_str(&first_stdout).expect("initial JSON output");
+    let second_stdout = String::from_utf8_lossy(&second.stdout);
+    let second_json: serde_json::Value =
+        serde_json::from_str(&second_stdout).expect("cached JSON output");
+
+    let first_consistency = first_json["style_scorecard"]["style_scores"]["consistency"]
+        .as_f64()
+        .expect("initial consistency score present");
+    let second_consistency = second_json["style_scorecard"]["style_scores"]["consistency"]
+        .as_f64()
+        .expect("cached consistency score present");
+
+    assert!(
+        first_consistency > 0.0,
+        "fixture should trigger a non-zero consistency score: {first_stdout}"
+    );
+    assert_eq!(
+        second_consistency, first_consistency,
+        "cache hits must preserve the same consistency score: {second_stdout}"
+    );
+}
+
+#[test]
+fn cli_lint_detect_style_requires_json_format() {
+    let output = run_lint_stdin(&["--detect-style"], "正確的軟體");
+    assert!(!output.status.success(), "human format should be rejected");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--detect-style is only supported with --format json"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn cli_lint_detect_style_uses_post_fix_text_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("style-fix.txt");
+    let filler = "甲".repeat(1200);
+    let text = format!("這個軟件很好用{}{}", "...".repeat(120), filler);
+    std::fs::write(&file, &text).unwrap();
+
+    let output = run_lint_args(&[
+        file.to_str().unwrap(),
+        "--format",
+        "json",
+        "--detect-style",
+        "--fix=orthographic",
+        "--max-errors",
+        "100",
+    ]);
+    assert!(
+        output.status.success(),
+        "fix+scorecard run should complete with JSON output"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("post-fix JSON output");
+    let final_text = std::fs::read_to_string(&file).unwrap();
+    let expected = 1000.0 / (final_text.chars().count() as f64);
+    let got = json["style_scorecard"]["style_scores"]["consistency"]
+        .as_f64()
+        .expect("consistency score present");
+    assert!(
+        (got - expected).abs() < 1e-6,
+        "scorecard must use post-fix text length; expected {expected}, got {got}, stdout={stdout}"
+    );
+}

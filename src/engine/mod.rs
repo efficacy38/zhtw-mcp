@@ -8,6 +8,7 @@ pub mod s2t;
 pub mod scan;
 pub mod segment;
 pub mod sentence;
+pub mod style_score;
 pub mod suppression;
 #[cfg(feature = "translate")]
 pub mod translate;

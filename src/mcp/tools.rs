@@ -388,10 +388,17 @@ impl Server {
 
         let stance_name = stance.unwrap_or(PoliticalStance::RocCentric).name();
         // Explicit bool overrides default; absent means inherit profile default.
-        // Default profile now enables both ai_filler_detection and
-        // translationese_detection (53.x initiative).
+        // Default profile enables both ai_filler_detection and
+        // translationese_detection.
         let detect_ai_opt = args.get("detect_ai").and_then(|v| v.as_bool());
         let detect_translationese_opt = args.get("detect_translationese").and_then(|v| v.as_bool());
+        // Explicit opt-in for the composite three-axis scorecard —
+        // mirrors the CLI `--detect-style` shorthand, off-by-default to
+        // keep the standard payload lean.
+        let detect_style = args
+            .get("detect_style")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let translationese_domain_opt = args
             .get("translationese_domain")
             .and_then(|v| v.as_str())
@@ -431,6 +438,15 @@ impl Server {
             ));
         }
 
+        if detect_style && output_mode == OutputMode::Tabular {
+            return Err(param_error(
+                &id,
+                "detect_style",
+                "true",
+                &["false", "or use output=full|compact|summary"],
+            ));
+        }
+
         // Build effective config: profile base + capability flags.
         let mut cfg = profile.config();
         if relaxed {
@@ -439,8 +455,11 @@ impl Server {
         if let Some(st) = stance {
             cfg = cfg.with_stance(st);
         }
-        // Translationese toggle (explicit override wins over profile default).
-        if let Some(b) = detect_translationese_opt {
+        // `detect_style` mirrors the CLI shorthand: it always computes the
+        // full three-axis scorecard, regardless of explicit per-axis disables.
+        if detect_style {
+            cfg.translationese_detection = true;
+        } else if let Some(b) = detect_translationese_opt {
             cfg.translationese_detection = b;
         }
         if let Some(domain_str) = &translationese_domain_opt {
@@ -461,7 +480,11 @@ impl Server {
         // Resolve effective AI detection: explicit arg wins over profile default.
         // All four AI sub-flags move as a unit — enabling detection turns them
         // all on, disabling turns them all off.
-        let detect_ai = detect_ai_opt.unwrap_or(cfg.ai_filler_detection);
+        let detect_ai = if detect_style {
+            true
+        } else {
+            detect_ai_opt.unwrap_or(cfg.ai_filler_detection)
+        };
         cfg.ai_filler_detection = detect_ai;
         cfg.ai_semantic_safety = detect_ai;
         cfg.ai_density_detection = detect_ai;
@@ -559,6 +582,17 @@ impl Server {
                 let trace =
                     Trace::new("zhtw", &self.ruleset_hash, text).with_issue_count(issues.len());
 
+                // Pre-build the composite scorecard so its lifetime spans
+                // the build_check_output call (the params struct only
+                // borrows it).
+                let style_scorecard = style_scorecard_for(
+                    detect_style,
+                    ai_signature.as_ref(),
+                    translationese_signature.as_ref(),
+                    &issues,
+                    text,
+                );
+
                 build_check_output(&CheckOutputParams {
                     result_text: text,
                     issues: &issues,
@@ -583,6 +617,7 @@ impl Server {
                     quality_flags,
                     ai_signature: ai_signature.as_ref(),
                     translationese_signature: translationese_signature.as_ref(),
+                    style_scorecard: style_scorecard.as_ref(),
                     tm_suppressed,
                     sampling_stats,
                     disambig_stats,
@@ -777,6 +812,17 @@ impl Server {
                     .with_issue_count(remaining_issues.len())
                     .with_output(&fix_result.text);
 
+                // Composite scorecard against the post-fix text and
+                // remaining issues, so the scorecard reflects the
+                // user-visible state.
+                let style_scorecard = style_scorecard_for(
+                    detect_style,
+                    ai_signature.as_ref(),
+                    translationese_signature.as_ref(),
+                    &remaining_issues,
+                    &fix_result.text,
+                );
+
                 build_check_output(&CheckOutputParams {
                     result_text: &fix_result.text,
                     issues: &remaining_issues,
@@ -801,6 +847,7 @@ impl Server {
                     quality_flags,
                     ai_signature: ai_signature.as_ref(),
                     translationese_signature: translationese_signature.as_ref(),
+                    style_scorecard: style_scorecard.as_ref(),
                     tm_suppressed,
                     sampling_stats,
                     disambig_stats,
@@ -958,6 +1005,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "output",
             "detect_ai",
             "detect_translationese",
+            "detect_style",
             "translationese_domain",
             "ai_threshold",
             "include_telemetry",
@@ -981,6 +1029,7 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "output",
             "detect_ai",
             "detect_translationese",
+            "detect_style",
             "translationese_domain",
             "ai_threshold",
             "include_telemetry",
@@ -1685,6 +1734,11 @@ struct FullOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     translationese_signature: Option<&'a crate::engine::translationese_score::TranslationeseReport>,
+    /// Composite three-axis style scorecard.  Present when the caller
+    /// opts in via `detect_style: true` (the MCP equivalent of the CLI
+    /// `--detect-style` shorthand).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    style_scorecard: Option<&'a crate::engine::style_score::StyleScorecard>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1721,6 +1775,11 @@ struct CompactOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     translationese_signature: Option<&'a crate::engine::translationese_score::TranslationeseReport>,
+    /// Composite three-axis style scorecard.  Present when the caller
+    /// opts in via `detect_style: true` (the MCP equivalent of the CLI
+    /// `--detect-style` shorthand).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    style_scorecard: Option<&'a crate::engine::style_score::StyleScorecard>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1745,6 +1804,11 @@ struct SummaryOutput<'a> {
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     translationese_signature: Option<&'a crate::engine::translationese_score::TranslationeseReport>,
+    /// Composite three-axis style scorecard.  Present when the caller
+    /// opts in via `detect_style: true` (the MCP equivalent of the CLI
+    /// `--detect-style` shorthand).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    style_scorecard: Option<&'a crate::engine::style_score::StyleScorecard>,
     #[serde(skip_serializing_if = "Option::is_none")]
     telemetry: Option<&'a TelemetryMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1807,6 +1871,10 @@ struct CheckOutputParams<'a> {
     quality_flags: &'a [String],
     ai_signature: Option<&'a crate::engine::ai_score::AiSignatureReport>,
     translationese_signature: Option<&'a crate::engine::translationese_score::TranslationeseReport>,
+    /// Composite style scorecard (or `None` when not requested).
+    /// The caller computes this once per scan; build_check_output forwards
+    /// it untouched into the chosen output mode.
+    style_scorecard: Option<&'a crate::engine::style_score::StyleScorecard>,
     /// Number of issues downgraded by translation memory.
     tm_suppressed: usize,
     /// Sampling budget usage statistics.
@@ -1862,6 +1930,28 @@ fn build_telemetry(
 /// Serializes typed structs directly to avoid intermediate `serde_json::Value`
 /// allocations. Uses compact JSON by default; set `ZHTW_PRETTY=1` env var
 /// for indented output during debugging.
+/// Build the composite three-axis scorecard when the caller explicitly
+/// opts in via `detect_style` (CLI: `--detect-style` flag, MCP:
+/// `detect_style: true` argument).  Pure aggregation — returns `None`
+/// when not requested so the standard payload stays lean.
+fn style_scorecard_for(
+    detect_style: bool,
+    ai: Option<&crate::engine::ai_score::AiSignatureReport>,
+    trans: Option<&crate::engine::translationese_score::TranslationeseReport>,
+    issues: &[Issue],
+    text: &str,
+) -> Option<crate::engine::style_score::StyleScorecard> {
+    if !detect_style {
+        return None;
+    }
+    Some(crate::engine::style_score::StyleScorecard::build(
+        ai,
+        trans,
+        issues,
+        text.chars().count(),
+    ))
+}
+
 fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
     let summary = build_summary(
         params.issues,
@@ -1950,6 +2040,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 quality_flags,
                 ai_signature: params.ai_signature,
                 translationese_signature: params.translationese_signature,
+                style_scorecard: params.style_scorecard,
                 telemetry: params.telemetry.as_ref(),
                 summary_metrics: stats_metrics.as_ref(),
             };
@@ -1979,6 +2070,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 quality_flags,
                 ai_signature: params.ai_signature,
                 translationese_signature: params.translationese_signature,
+                style_scorecard: params.style_scorecard,
                 telemetry: params.telemetry.as_ref(),
                 summary_metrics: stats_metrics.as_ref(),
             };
@@ -2009,6 +2101,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 quality_flags,
                 ai_signature: params.ai_signature,
                 translationese_signature: params.translationese_signature,
+                style_scorecard: params.style_scorecard,
                 telemetry: params.telemetry.as_ref(),
                 summary_metrics: stats_metrics.as_ref(),
             };
@@ -2407,7 +2500,7 @@ fn build_fix_diff(
                     Some((fix.offset, fix.old_len, found, fix.replacement.as_str()))
                 })
                 .collect();
-            patches.sort_by(|a, b| b.0.cmp(&a.0));
+            patches.sort_by_key(|p| std::cmp::Reverse(p.0));
 
             let mut out = String::with_capacity(patches.len() * 40);
             let _ = writeln!(out, "#patches={}", patches.len());
@@ -2510,6 +2603,10 @@ fn tool_definitions() -> Vec<ToolDef> {
             props.insert("detect_translationese".into(), json!({
                 "type": "boolean",
                 "description": "Enable translationese (翻譯腔 / 歐化) detection — Europeanized syntax and calques from the dewesternise checklist. Default: on. Orthogonal to detect_ai; reported separately."
+            }));
+            props.insert("detect_style".into(), json!({
+                "type": "boolean",
+                "description": "Composite style scorecard: emit `style_scorecard` with three orthogonal axes (ai, translationese, consistency) plus top contributing issues. Default: false. Three scores never collapsed into a single number."
             }));
             props.insert("translationese_domain".into(), json!({
                 "type": "string",
@@ -2807,6 +2904,7 @@ mod tests {
             quality_flags: None,
             ai_signature: None,
             translationese_signature: None,
+            style_scorecard: None,
             telemetry: None,
             summary_metrics: None,
         };
@@ -2916,6 +3014,23 @@ mod tests {
     }
 
     #[test]
+    fn tools_call_detect_style_rejected_for_tabular_output() {
+        let (mut server, _dir) = make_initialized_server();
+        let resp = call_zhtw(
+            &mut server,
+            serde_json::json!({
+                "text": "正確的軟體",
+                "output": "tabular",
+                "detect_style": true
+            }),
+        );
+        assert!(resp.error.is_some());
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, INVALID_PARAMS);
+        assert!(err.message.contains("detect_style"));
+    }
+
+    #[test]
     fn tools_call_empty_text_input() {
         let (mut server, _dir) = make_initialized_server();
         let resp = call_zhtw(&mut server, serde_json::json!({ "text": "" }));
@@ -2947,6 +3062,7 @@ mod tests {
             "output",
             "detect_ai",
             "detect_translationese",
+            "detect_style",
             "translationese_domain",
             "ai_threshold",
             "include_telemetry",

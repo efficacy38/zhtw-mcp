@@ -151,6 +151,10 @@ fn e2e_initialize_and_tools_list() {
     assert!(props.get("content_type").is_some());
     assert!(props.get("political_stance").is_some());
     assert!(props.get("include_telemetry").is_some());
+    assert!(
+        props.get("detect_style").is_some(),
+        "detect_style must appear in zhtw schema"
+    );
 
     // 4. zhtw lint-only (fix_mode absent = none) — detect 軟件
     let resp = send_recv(
@@ -955,6 +959,61 @@ fn e2e_include_telemetry_rejected_for_tabular_output() {
         }),
     );
     let _ = child.wait().unwrap();
+}
+
+#[test]
+fn e2e_detect_style_forces_full_three_axis_scorecard() {
+    let (mut stdin, mut stdout, mut child, _tmp) = spawn_initialized_child();
+    let mut text = String::new();
+    for i in 0..100 {
+        if i % 20 == 0 {
+            text.push_str("更重要的是，我們需要重新評估這個方案。");
+        } else {
+            text.push_str("這是正常的技術內容段落。");
+        }
+    }
+    for _ in 0..8 {
+        text.push_str("這是 20 世紀最重要的發現之一。當我抵達公司的時候，他已經在開會了。");
+    }
+
+    let resp = send_recv(
+        &mut stdin,
+        &mut stdout,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 50,
+            "params": {
+                "name": "zhtw",
+                "arguments": {
+                    "text": text,
+                    "detect_style": true,
+                    "detect_ai": false,
+                    "detect_translationese": false
+                }
+            }
+        }),
+    );
+    assert_eq!(resp["id"], 50);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    let output: Value = serde_json::from_str(content_text).unwrap();
+    let scores = &output["style_scorecard"]["style_scores"];
+    assert!(
+        scores.get("ai").is_some(),
+        "detect_style should force the AI axis even when detect_ai=false: {content_text}"
+    );
+    assert!(
+        scores.get("translationese").is_some(),
+        "detect_style should force the translationese axis even when detect_translationese=false: {content_text}"
+    );
+    assert!(
+        scores.get("consistency").is_some(),
+        "detect_style should always include the consistency axis: {content_text}"
+    );
+
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success(), "child exited with {status}");
 }
 
 /// Spawn an initialized MCP child for malformed protocol tests.

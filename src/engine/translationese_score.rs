@@ -93,6 +93,10 @@ impl TranslationeseDomain {
                 pronoun: 8.0,
                 de_chain: 4,
                 issue_density: 5.0,
+                zy1b_per_200: 2.0,
+                zy3b_chain_min: 3,
+                zy5_min_chars: 15,
+                zy5_min_de_count: 2,
             },
             TranslationeseDomain::Technical => DomainThresholds {
                 // Technical prose tolerates more passive voice (specs commonly
@@ -103,6 +107,14 @@ impl TranslationeseDomain {
                 pronoun: 6.0,
                 de_chain: 5,
                 issue_density: 7.0,
+                // Register crosswalk: external `literal` style ↔ technical_docs.
+                // Looser ZY1b density (technical writing accepts repeated
+                // "...之一" enumerations); higher ZY3b chain threshold
+                // (chained nominalization tolerated more in technical text).
+                zy1b_per_200: 3.0,
+                zy3b_chain_min: 4,
+                zy5_min_chars: 18,
+                zy5_min_de_count: 2,
             },
             TranslationeseDomain::Literary => DomainThresholds {
                 // Literary prose should be lean: tighter thresholds catch the
@@ -112,20 +124,34 @@ impl TranslationeseDomain {
                 pronoun: 10.0,
                 de_chain: 3,
                 issue_density: 3.0,
+                zy1b_per_200: 1.0,
+                zy3b_chain_min: 3,
+                zy5_min_chars: 12,
+                zy5_min_de_count: 2,
             },
             TranslationeseDomain::News => DomainThresholds {
                 // News writing favors active voice and concise sentences.
+                // Register crosswalk: external `storytelling` style ↔ newsroom.
                 passive: 2.5,
                 weak_verb: 2.0,
                 pronoun: 7.0,
                 de_chain: 4,
                 issue_density: 4.0,
+                zy1b_per_200: 2.5,
+                zy3b_chain_min: 3,
+                zy5_min_chars: 15,
+                zy5_min_de_count: 2,
             },
         }
     }
 }
 
 /// Per-signal threshold values for a given domain calibration.
+///
+/// Register-aware fields (zy1b/zy3b/zy5) flip with the
+/// `--translationese-domain` flag (CLI) or `translationese_domain` MCP
+/// argument; threshold values are committed to source as the per-domain
+/// `thresholds()` table.
 #[derive(Debug, Clone, Copy)]
 pub struct DomainThresholds {
     pub passive: f32,
@@ -133,6 +159,16 @@ pub struct DomainThresholds {
     pub pronoun: f32,
     pub de_chain: usize,
     pub issue_density: f32,
+    /// ZY1b: 之一 occurrences per 200 chars in a paragraph above which
+    /// the density check fires.
+    pub zy1b_per_200: f32,
+    /// ZY3b: minimum nominalization-head chain length (e.g.
+    /// `<head>的<head>的<head>` = 3) within one sentence required to fire.
+    pub zy3b_chain_min: usize,
+    /// ZY5: minimum char length of the comma-free pre-modifier span.
+    pub zy5_min_chars: usize,
+    /// ZY5: minimum count of `的` particles inside the span.
+    pub zy5_min_de_count: usize,
 }
 
 // Per-signal weights — kept constant across domains; only thresholds shift.

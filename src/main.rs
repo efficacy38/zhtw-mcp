@@ -80,6 +80,9 @@ fn main() -> Result<()> {
     let mut relaxed = false;
     let mut detect_ai = false;
     let mut detect_translationese = false;
+    // Emit composite three-axis scorecard when --detect-style is used
+    // (set alongside detect_ai + detect_translationese in that arm).
+    let mut detect_style = false;
     let mut translationese_domain =
         zhtw_mcp::engine::translationese_score::TranslationeseDomain::General;
     let mut ai_threshold_multiplier: f32 = 1.0;
@@ -270,6 +273,7 @@ fn main() -> Result<()> {
                             // orthogonal — reported side by side, never merged.
                             detect_ai = true;
                             detect_translationese = true;
+                            detect_style = true;
                             // Keep the same optional threshold syntax as --detect-ai.
                             if let Some(next) = args.get(i + 1) {
                                 match next.as_str() {
@@ -570,6 +574,10 @@ fn main() -> Result<()> {
                 zhtw_mcp::rules::store::discover_tm_path(&cwd)
             });
 
+        if detect_style && !matches!(lint_format, LintFormat::Json) {
+            anyhow::bail!("--detect-style is only supported with --format json");
+        }
+
         return run_lint_batch(&LintBatchParams {
             file_args: &lint_files,
             format: lint_format,
@@ -592,6 +600,7 @@ fn main() -> Result<()> {
             relaxed: eff_relaxed,
             detect_ai,
             detect_translationese,
+            detect_style,
             translationese_domain,
             ai_threshold_multiplier,
             tm_path: Some(eff_tm_path),
@@ -684,6 +693,11 @@ struct CliFileOutput {
     ai_signature: Option<zhtw_mcp::engine::ai_score::AiSignatureReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     translationese_signature: Option<zhtw_mcp::engine::translationese_score::TranslationeseReport>,
+    /// Composite style scorecard.  Three orthogonal axes, never
+    /// collapsed into a single number.  Present only when --detect-style
+    /// is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    style_scorecard: Option<zhtw_mcp::engine::style_score::StyleScorecard>,
 }
 
 #[derive(serde::Serialize)]
@@ -786,6 +800,11 @@ struct LintBatchParams<'a> {
     relaxed: bool,
     detect_ai: bool,
     detect_translationese: bool,
+    /// Emit composite three-axis style scorecard alongside the per-axis
+    /// ai_signature / translationese_signature reports.  Set only by
+    /// `--detect-style` (which also flips detect_ai +
+    /// detect_translationese).
+    detect_style: bool,
     translationese_domain: zhtw_mcp::engine::translationese_score::TranslationeseDomain,
     ai_threshold_multiplier: f32,
     tm_path: Option<PathBuf>,
@@ -898,6 +917,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
     let scan_file = |file_arg: &str| -> Result<(
         String,
         bool,
+        usize,
         zhtw_mcp::engine::scan::ScanOutput,
         zhtw_mcp::engine::scan::ContentType,
     )> {
@@ -952,7 +972,13 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             if let Some(hit) = fast_hit {
                 if !hit.input_was_sc {
                     // Cache hit for non-SC file — skip file read and scan.
-                    return Ok((String::new(), false, hit.output, content_type));
+                    return Ok((
+                        String::new(),
+                        false,
+                        hit.text_char_count,
+                        hit.output,
+                        content_type,
+                    ));
                 }
                 // SC files need the text for S2T write-back; fall through.
             }
@@ -968,6 +994,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             if input_was_sc {
                 text = s2t.convert(&text);
             }
+            let text_char_count = text.chars().count();
 
             // Slow-path cache: check content hash (mtime missed but content
             // may be unchanged, e.g. after `touch`).
@@ -989,6 +1016,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                             &cache_params,
                             o.clone(),
                             input_was_sc,
+                            text_char_count,
                         );
                     }
                     o
@@ -1006,7 +1034,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                 text = String::new();
             }
 
-            return Ok((text, input_was_sc, output, content_type));
+            return Ok((text, input_was_sc, text_char_count, output, content_type));
         }
 
         // stdin path.
@@ -1025,22 +1053,26 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
         if input_was_sc {
             text = s2t.convert(&text);
         }
+        let text_char_count = text.chars().count();
         let output = scanner.scan_for_content_type_with_config(&text, content_type, cfg);
 
-        Ok((text, input_was_sc, output, content_type))
+        Ok((text, input_was_sc, text_char_count, output, content_type))
     };
 
     // Parallel scan when multiple files and no stdin pipe.
     // Rayon parallelism gives N/cores speedup on multi-file lint.
     let has_stdin = resolved.iter().any(|f| f == "--");
-    let scan_results: Vec<
-        Result<(
-            String,
-            bool,
-            zhtw_mcp::engine::scan::ScanOutput,
-            zhtw_mcp::engine::scan::ContentType,
-        )>,
-    > = if resolved.len() > 1 && !has_stdin {
+    // Type alias keeps clippy::type_complexity happy and gives the
+    // tuple slot ordering a single source of truth: (raw text, was-SC
+    // input flag, char count, scan output, content type).
+    type ScanResult = Result<(
+        String,
+        bool,
+        usize,
+        zhtw_mcp::engine::scan::ScanOutput,
+        zhtw_mcp::engine::scan::ContentType,
+    )>;
+    let scan_results: Vec<ScanResult> = if resolved.len() > 1 && !has_stdin {
         use rayon::prelude::*;
         resolved.par_iter().map(|f| scan_file(f)).collect()
     } else {
@@ -1049,7 +1081,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
 
     // Phase 2: Fix + report (always sequential for ordered output).
     for (file_arg, scan_result) in resolved.iter().zip(scan_results) {
-        let (text, input_was_sc, output, content_type) = scan_result?;
+        let (text, input_was_sc, text_char_count, output, content_type) = scan_result?;
 
         let detected_script = if input_was_sc {
             "simplified"
@@ -1258,6 +1290,13 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
 
         // Use new_issues for reporting (baseline issues filtered out).
         let report_issues = new_issues;
+        let report_text_char_count = if has_text_changes && !params.dry_run {
+            fix_result
+                .as_ref()
+                .map_or(text_char_count, |f| f.text.chars().count())
+        } else {
+            text_char_count
+        };
 
         match params.format {
             LintFormat::Json => {
@@ -1277,6 +1316,16 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                     fixes_skipped: fix_result.as_ref().map(|f| f.skipped),
                     ai_signature: ai_signature.clone(),
                     translationese_signature: translationese_signature.clone(),
+                    style_scorecard: if params.detect_style {
+                        Some(zhtw_mcp::engine::style_score::StyleScorecard::build(
+                            ai_signature.as_ref(),
+                            translationese_signature.as_ref(),
+                            &report_issues,
+                            report_text_char_count,
+                        ))
+                    } else {
+                        None
+                    },
                 };
                 if multi {
                     all_file_results.push(output);

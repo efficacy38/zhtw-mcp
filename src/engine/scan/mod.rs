@@ -200,6 +200,55 @@ const MIN_SCAN_CLUE_MATCHES: usize = 1;
 /// express proximity, not just co-occurrence.
 const POSITIONAL_WINDOW_CHARS: usize = 20;
 
+fn dedup_translationese_phase_duplicates(issues: &mut Vec<Issue>) {
+    let indexed_spans: Vec<(&'static str, usize, usize)> = issues
+        .iter()
+        .filter_map(|issue| {
+            translationese_phase_family(issue).and_then(|(family, phase_rank)| {
+                (phase_rank == 1).then_some((family, issue.offset, issue.offset + issue.length))
+            })
+        })
+        .collect();
+
+    issues.retain(|issue| match translationese_phase_family(issue) {
+        Some((family, 0)) => {
+            let start = issue.offset;
+            let end = issue.offset + issue.length;
+            !indexed_spans
+                .iter()
+                .any(|&(indexed_family, indexed_start, indexed_end)| {
+                    indexed_family == family && indexed_start < end && start < indexed_end
+                })
+        }
+        _ => true,
+    });
+}
+
+fn translationese_phase_family(issue: &Issue) -> Option<(&'static str, u8)> {
+    if issue.rule_type != IssueType::Translationese {
+        return None;
+    }
+    let ctx = issue.context.as_deref()?;
+    // Order matters: check the boundary-aware (b) variant first so a
+    // context that contains both substrings (e.g. "ZY1b" trivially
+    // contains "ZY1") classifies as the higher-rank variant.
+    if ctx.contains("ZY1b") {
+        Some(("ZY1", 1))
+    } else if ctx.contains("ZY1a") {
+        Some(("ZY1", 0))
+    } else if ctx.contains("ZY2b") {
+        Some(("ZY2", 1))
+    } else if ctx.contains("ZY2a") {
+        Some(("ZY2", 0))
+    } else if ctx.contains("ZY3b") {
+        Some(("ZY3", 1))
+    } else if ctx.contains("ZY3a") {
+        Some(("ZY3", 0))
+    } else {
+        None
+    }
+}
+
 /// A parsed positional condition for disambiguation.
 ///
 /// Positional clues constrain WHERE a context term must appear relative to
@@ -1273,7 +1322,7 @@ impl Scanner {
         }
 
         // Build sentence/paragraph boundary index for structural detectors.
-        // Computed lazily -- only when Phase 2 detectors are active.
+        // Computed lazily -- only when boundary-aware detectors are active.
         let needs_boundary_index = cfg.ai_structural_patterns || cfg.translationese_detection;
         let boundary_index = if needs_boundary_index {
             Some(BoundaryIndex::build(text, excluded))
@@ -1294,7 +1343,22 @@ impl Scanner {
         if cfg.translationese_detection {
             if let Some(ref idx) = boundary_index {
                 grammar::scan_translationese_syntactic(text, excluded, issues, idx);
+                // Boundary-aware translationese detectors
+                // (ZY1b/ZY2b/ZY3b/ZY5).  `cfg.translationese_domain`
+                // selects the per-domain threshold table that drives
+                // firing behavior at scan time.
+                grammar::scan_translationese_indexed(
+                    text,
+                    excluded,
+                    issues,
+                    idx,
+                    cfg.translationese_domain,
+                );
             }
+            // Substring-only translationese detectors (ZY1a/ZY2a/ZY3a/
+            // ZY4a) — no boundary index required.
+            grammar::scan_translationese_lexical(text, excluded, issues);
+            dedup_translationese_phase_duplicates(issues);
         }
 
         // Fix CN quotation mark pairing with depth-based nesting:
@@ -1477,11 +1541,9 @@ fn build_quality_flags(issues: &[Issue]) -> Vec<String> {
 
     for issue in issues {
         match issue.rule_type {
-            IssueType::Confusable => {
-                // Only flag as ASR artifact if rule context explicitly says so.
-                if issue.context.as_ref().is_some_and(|c| c.contains("ASR")) {
-                    has_confusable = true;
-                }
+            // Only flag as ASR artifact if rule context explicitly says so.
+            IssueType::Confusable if issue.context.as_ref().is_some_and(|c| c.contains("ASR")) => {
+                has_confusable = true;
             }
             IssueType::Repetition => {
                 if is_spaced_acronym_issue(issue) {
@@ -1556,6 +1618,19 @@ mod tests {
                 disabled: false,
             },
         ]
+    }
+
+    fn translationese_issues<'a>(issues: &'a [Issue], code: &str) -> Vec<&'a Issue> {
+        issues
+            .iter()
+            .filter(|issue| {
+                issue.rule_type == IssueType::Translationese
+                    && issue
+                        .context
+                        .as_ref()
+                        .is_some_and(|context| context.contains(code))
+            })
+            .collect()
     }
 
     #[test]
@@ -2354,6 +2429,36 @@ mod tests {
         assert!(
             issues.is_empty(),
             "adjacent: must not match term inside excluded region: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn translationese_pipeline_keeps_only_indexed_zy2_issue() {
+        let scanner = Scanner::new(vec![], vec![]);
+        let issues = scanner.scan("因為下雨了，所以我們待在屋裡。").issues;
+        let zy2 = translationese_issues(&issues, "ZY2");
+        assert_eq!(zy2.len(), 1, "expected one surviving ZY2 issue: {issues:?}");
+        assert!(
+            zy2[0]
+                .context
+                .as_ref()
+                .is_some_and(|context| context.contains("ZY2b")),
+            "indexed ZY2b should win: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn translationese_pipeline_keeps_only_indexed_zy3_issue() {
+        let scanner = Scanner::new(vec![], vec![]);
+        let issues = scanner.scan("他完成改善的提升的發現工作。").issues;
+        let zy3 = translationese_issues(&issues, "ZY3");
+        assert_eq!(zy3.len(), 1, "expected one surviving ZY3 issue: {issues:?}");
+        assert!(
+            zy3[0]
+                .context
+                .as_ref()
+                .is_some_and(|context| context.contains("ZY3b")),
+            "indexed ZY3b should win: {issues:?}"
         );
     }
 

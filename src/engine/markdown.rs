@@ -38,14 +38,12 @@ pub fn build_markdown_excluded_ranges(text: &str) -> Vec<ByteRange> {
                 in_code_block = true;
                 code_block_start = range.start;
             }
-            Event::End(TagEnd::CodeBlock) => {
-                if in_code_block {
-                    ranges.push(ByteRange {
-                        start: code_block_start,
-                        end: range.end,
-                    });
-                    in_code_block = false;
-                }
+            Event::End(TagEnd::CodeBlock) if in_code_block => {
+                ranges.push(ByteRange {
+                    start: code_block_start,
+                    end: range.end,
+                });
+                in_code_block = false;
             }
 
             // Inline code: exclude the span including backticks.
@@ -213,33 +211,25 @@ pub fn extract_table_cell_spans(text: &str) -> Vec<TableCellSpan> {
             Event::End(TagEnd::Table) => {
                 in_table = false;
             }
-            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
-                if in_table {
-                    current_col = 0;
-                }
+            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) if in_table => {
+                current_col = 0;
             }
-            Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
-                if in_table {
-                    current_row += 1;
-                }
+            Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) if in_table => {
+                current_row += 1;
             }
-            Event::Start(Tag::TableCell) => {
-                if in_table {
-                    cell_active = true;
-                    cell_start = range.start;
-                }
+            Event::Start(Tag::TableCell) if in_table => {
+                cell_active = true;
+                cell_start = range.start;
             }
-            Event::End(TagEnd::TableCell) => {
-                if in_table && cell_active {
-                    spans.push(TableCellSpan {
-                        start: cell_start,
-                        end: range.end,
-                        row: current_row,
-                        col: current_col,
-                    });
-                    current_col += 1;
-                    cell_active = false;
-                }
+            Event::End(TagEnd::TableCell) if in_table && cell_active => {
+                spans.push(TableCellSpan {
+                    start: cell_start,
+                    end: range.end,
+                    row: current_row,
+                    col: current_col,
+                });
+                current_col += 1;
+                cell_active = false;
             }
             _ => {}
         }
@@ -276,17 +266,15 @@ pub fn extract_heading_ranges(text: &str) -> Vec<ByteRange> {
                 current_inline_start = None;
                 current_inline_end = None;
             }
-            Event::End(TagEnd::Heading(_)) => {
-                if in_heading {
-                    if let (Some(start), Some(end)) = (current_inline_start, current_inline_end) {
-                        // Skip false-positive headings synthesised from
-                        // frontmatter content + closing `---`.
-                        if start >= frontmatter_end {
-                            ranges.push(ByteRange { start, end });
-                        }
+            Event::End(TagEnd::Heading(_)) if in_heading => {
+                if let (Some(start), Some(end)) = (current_inline_start, current_inline_end) {
+                    // Skip false-positive headings synthesised from
+                    // frontmatter content + closing `---`.
+                    if start >= frontmatter_end {
+                        ranges.push(ByteRange { start, end });
                     }
-                    in_heading = false;
                 }
+                in_heading = false;
             }
             Event::Text(_) | Event::Code(_) | Event::Html(_) | Event::InlineHtml(_)
                 if in_heading =>

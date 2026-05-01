@@ -1,4 +1,4 @@
-// Benchmark for calibration-based anchor verification (35.6).
+// Benchmark for calibration-based anchor verification.
 //
 // Measures: anchor coverage, match/unmatch rate, latency overhead,
 // and multi-run convergence.
@@ -157,7 +157,7 @@ fn pct(numerator: usize, denominator: usize) -> f64 {
 
 fn print_report(m: &BenchmarkMetrics) {
     println!("\n========================================");
-    println!("  Calibration Benchmark Report (35.6)");
+    println!("  Calibration Benchmark Report");
     println!("========================================\n");
 
     println!("1. Issue Summary");

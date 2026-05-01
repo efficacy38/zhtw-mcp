@@ -1,4 +1,4 @@
-// Benchmark for fix tier precision (35.4).
+// Benchmark for fix tier precision.
 //
 // Demonstrates how each fix tier applies progressively more fixes on
 // realistic mixed-issue text.  Measures: issues detected, fixes applied,
@@ -92,7 +92,7 @@ fn fix_tier_precision_gradient() {
     let (scanner, segmenter) = load_scanner();
 
     println!();
-    println!("=== Fix Tier Precision Benchmark (35.4) ===");
+    println!("=== Fix Tier Precision Benchmark ===");
     println!();
 
     // Run all tiers on the mixed text.

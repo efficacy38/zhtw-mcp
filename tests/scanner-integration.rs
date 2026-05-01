@@ -912,7 +912,7 @@ fn ai_filler_rules_suppressed_in_base_profile() {
     let rules = vec![ai_filler_rule("值得注意的是，", &[""])];
     let scanner = Scanner::new(rules, vec![]);
 
-    // Base profile enables ai_filler_detection by default (53.x initiative).
+    // Base profile enables ai_filler_detection by default.
     let output =
         scanner.scan_with_config("值得注意的是，系統需要重啟", &[], Profile::Base.config());
     let ai_issues: Vec<_> = output

@@ -199,7 +199,7 @@ fn ir_ai_filler_gated_by_profile() {
         vec![],
     );
 
-    // Base profile enables AI filler detection by default (53.x initiative).
+    // Base profile enables AI filler detection by default.
     let out = scanner.scan("值得注意的是這件事");
     assert_eq!(out.issues.len(), 1, "ai_filler fires under default Base");
 
@@ -472,7 +472,7 @@ fn ir_full_ruleset_variant_skipped_for_simplified() {
 fn ir_full_ruleset_ai_filler_gated() {
     let scanner = full_scanner();
 
-    // Under default profile, AI filler rules fire automatically (53.x).
+    // Under default profile, AI filler rules fire automatically.
     let out = scanner.scan("值得注意的是這個問題");
     let ai_issues: Vec<_> = out
         .issues

@@ -155,12 +155,9 @@ pub fn run_stdio(server: &mut Server) -> Result<()> {
     let mut writer = stdout.lock();
     let mut pending: VecDeque<StdinMsg> = VecDeque::new();
 
-    loop {
-        // Drain spillover before blocking on the channel.
-        let Some(msg) = pending.pop_front().or_else(|| line_rx.recv().ok()) else {
-            break; // channel closed = EOF
-        };
-
+    // Drain spillover before blocking on the channel; a closed channel
+    // produces None and breaks the loop (EOF).
+    while let Some(msg) = pending.pop_front().or_else(|| line_rx.recv().ok()) {
         let line = match msg {
             StdinMsg::Line(l) => l,
             StdinMsg::TooLong => {

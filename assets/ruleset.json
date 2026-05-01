@@ -6335,6 +6335,13 @@
       "english": "smartphone"
     },
     {
+      "from": "智能體",
+      "to": ["智慧型代理人"],
+      "type": "cross_strait",
+      "context": "@domain 程式設計",
+      "english": "AI agent"
+    },
+    {
       "from": "更好地",
       "to": ["更好"],
       "type": "translationese",

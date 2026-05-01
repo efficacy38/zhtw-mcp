@@ -74,6 +74,8 @@ struct CacheEntry {
     params: ScanParams,
     output: ScanOutput,
     input_was_sc: bool,
+    #[serde(default)]
+    text_char_count: usize,
     timestamp_secs: u64,
 }
 
@@ -92,6 +94,7 @@ pub struct ScanCache {
 pub struct CacheHit {
     pub output: ScanOutput,
     pub input_was_sc: bool,
+    pub text_char_count: usize,
 }
 
 /// Result of a cache lookup.
@@ -165,10 +168,12 @@ impl ScanCache {
             if now_secs().saturating_sub(entry.timestamp_secs) <= ttl
                 && entry.file_meta.mtime_secs == mtime_secs
                 && entry.file_meta.size == size
+                && (size == 0 || entry.text_char_count > 0)
             {
                 return CacheResult::Hit(Box::new(CacheHit {
                     output: entry.output.clone(),
                     input_was_sc: entry.input_was_sc,
+                    text_char_count: entry.text_char_count,
                 }));
             }
         }
@@ -189,9 +194,13 @@ impl ScanCache {
         if now_secs().saturating_sub(entry.timestamp_secs) > ttl {
             return None;
         }
+        if !content.is_empty() && entry.text_char_count == 0 {
+            return None;
+        }
         (entry.content_hash == blake3_hex(content)).then(|| CacheHit {
             output: entry.output.clone(),
             input_was_sc: entry.input_was_sc,
+            text_char_count: entry.text_char_count,
         })
     }
 
@@ -206,6 +215,7 @@ impl ScanCache {
         params: &ScanParams,
         output: ScanOutput,
         input_was_sc: bool,
+        text_char_count: usize,
     ) {
         self.entries_mut().insert(
             fast_key(file_path, params),
@@ -216,6 +226,7 @@ impl ScanCache {
                 params: params.clone(),
                 output,
                 input_was_sc,
+                text_char_count,
                 timestamp_secs: now_secs(),
             },
         );
@@ -431,7 +442,7 @@ mod tests {
         let mut cache = ScanCache::open(dir.path().join("c.bin"));
         let p = test_params();
 
-        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false);
+        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false, 5);
 
         // Same mtime+size = fast hit.
         assert!(matches!(
@@ -468,7 +479,7 @@ mod tests {
         let mut cache = ScanCache::open(dir.path().join("c.bin"));
         let p = test_params();
 
-        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false);
+        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false, 5);
 
         // Same params with detect_ai=false: hit.
         assert!(matches!(
@@ -497,7 +508,7 @@ mod tests {
             ..test_params()
         };
 
-        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false);
+        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false, 5);
 
         // Same threshold: hit.
         assert!(matches!(
@@ -536,7 +547,7 @@ mod tests {
             ..test_params()
         };
 
-        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false);
+        cache.put("a.md", b"hello", 1000, 5, &p, empty_output(), false, 5);
 
         // Same domain: hit.
         assert!(matches!(
@@ -561,7 +572,7 @@ mod tests {
         let mut cache = ScanCache::open(dir.path().join("c.bin"));
         let p = test_params_plain();
 
-        cache.put("b.md", b"data", 1000, 4, &p, empty_output(), false);
+        cache.put("b.md", b"data", 1000, 4, &p, empty_output(), false, 4);
 
         // Same content despite mtime miss: slow-path hit.
         assert!(cache.check_content("b.md", b"data", &p).is_some());
@@ -578,7 +589,7 @@ mod tests {
 
         {
             let mut cache = ScanCache::open(path.clone());
-            cache.put("f.md", b"x", 100, 1, &p, empty_output(), false);
+            cache.put("f.md", b"x", 100, 1, &p, empty_output(), false, 1);
             cache.flush();
         }
 
@@ -594,7 +605,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut cache = ScanCache::open(dir.path().join("c.bin"));
         let p = test_params_plain();
-        cache.put("e.md", b"x", 100, 1, &p, empty_output(), false);
+        cache.put("e.md", b"x", 100, 1, &p, empty_output(), false, 1);
         for entry in cache.entries_mut().values_mut() {
             entry.timestamp_secs = 0;
         }
@@ -612,7 +623,7 @@ mod tests {
 
         for i in 0..MAX_ENTRIES + 10 {
             let name = format!("file_{i}.md");
-            cache.put(&name, b"x", 100, 1, &p, empty_output(), false);
+            cache.put(&name, b"x", 100, 1, &p, empty_output(), false, 1);
             let key = fast_key(&name, &p);
             if let Some(e) = cache.entries_mut().get_mut(&key) {
                 e.timestamp_secs = i as u64 + 1_700_000_000;
@@ -622,5 +633,49 @@ mod tests {
         assert!(cache.entries().len() > MAX_ENTRIES);
         cache.flush();
         assert!(cache.entries().len() <= MAX_ENTRIES);
+    }
+
+    #[test]
+    fn char_count_survives_cache_hits() {
+        let dir = TempDir::new().unwrap();
+        let mut cache = ScanCache::open(dir.path().join("c.bin"));
+        let p = test_params_plain();
+
+        cache.put(
+            "chars.md",
+            "甲乙丙".as_bytes(),
+            1000,
+            9,
+            &p,
+            empty_output(),
+            false,
+            3,
+        );
+
+        let fast_hit = cache
+            .check_fast("chars.md", 1000, 9, &p)
+            .into_hit()
+            .unwrap();
+        assert_eq!(fast_hit.text_char_count, 3);
+
+        let content_hit = cache
+            .check_content("chars.md", "甲乙丙".as_bytes(), &p)
+            .unwrap();
+        assert_eq!(content_hit.text_char_count, 3);
+    }
+
+    #[test]
+    fn legacy_entries_without_char_count_miss_until_refreshed() {
+        let dir = TempDir::new().unwrap();
+        let mut cache = ScanCache::open(dir.path().join("c.bin"));
+        let p = test_params_plain();
+
+        cache.put("legacy.md", b"abc", 1000, 3, &p, empty_output(), false, 0);
+
+        assert!(matches!(
+            cache.check_fast("legacy.md", 1000, 3, &p),
+            CacheResult::Miss
+        ));
+        assert!(cache.check_content("legacy.md", b"abc", &p).is_none());
     }
 }
