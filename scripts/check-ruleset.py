@@ -78,6 +78,7 @@ KNOWN_SPELLING_FIELDS = {
     "negative_context_clues",
     "positional_clues",
     "tags",
+    "editorial_confidence",
 }
 
 # Field order for spelling rules (stable, human-scannable output).
@@ -93,6 +94,7 @@ SPELLING_FIELD_ORDER = [
     "positional_clues",
     "exceptions",
     "tags",
+    "editorial_confidence",
 ]
 
 CASE_FIELD_ORDER = ["term", "alternatives", "disabled"]

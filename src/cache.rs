@@ -63,6 +63,10 @@ pub struct ScanParams {
     pub translationese_domain: String,
     // AI threshold level (formatted f32) — different multipliers produce different results.
     pub ai_threshold: String,
+    // Markdown blockquote-exemption flag — changes which spans get
+    // scanned, so cache hits must be invalidated when toggled.
+    #[serde(default)]
+    pub exempt_blockquotes: bool,
 }
 
 /// A single cached entry.
@@ -420,6 +424,7 @@ mod tests {
             detect_translationese: false,
             translationese_domain: "general".into(),
             ai_threshold: "1.0".into(),
+            exempt_blockquotes: false,
         }
     }
 
@@ -433,6 +438,7 @@ mod tests {
             detect_translationese: false,
             translationese_domain: "general".into(),
             ai_threshold: "1.0".into(),
+            exempt_blockquotes: false,
         }
     }
 

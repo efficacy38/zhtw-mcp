@@ -78,6 +78,8 @@ fn main() -> Result<()> {
     let mut dry_run = false;
     let mut explain = false;
     let mut relaxed = false;
+    let mut exempt_blockquotes = false;
+    let mut consistency = false;
     let mut detect_ai = false;
     let mut detect_translationese = false;
     // Emit composite three-axis scorecard when --detect-style is used
@@ -165,6 +167,12 @@ fn main() -> Result<()> {
                         }
                         "--relaxed" => {
                             relaxed = true;
+                        }
+                        "--exempt-blockquotes" => {
+                            exempt_blockquotes = true;
+                        }
+                        "--consistency" => {
+                            consistency = true;
                         }
                         "--content-type" => {
                             i += 1;
@@ -540,6 +548,12 @@ fn main() -> Result<()> {
             .or_else(|| cfg_ref.and_then(|c| c.profile.as_deref()));
         // CLI --relaxed flag overrides config file relaxed setting.
         let eff_relaxed = relaxed || cfg_ref.and_then(|c| c.relaxed).unwrap_or(false);
+        // CLI --exempt-blockquotes flag OR `[markdown] exempt_blockquotes`.
+        let eff_exempt_blockquotes = exempt_blockquotes
+            || cfg_ref
+                .and_then(|c| c.markdown.as_ref())
+                .and_then(|m| m.exempt_blockquotes)
+                .unwrap_or(false);
         let eff_content_type = content_type_str
             .as_deref()
             .or_else(|| cfg_ref.and_then(|c| c.content_type.as_deref()));
@@ -574,6 +588,16 @@ fn main() -> Result<()> {
                 zhtw_mcp::rules::store::discover_tm_path(&cwd)
             });
 
+        // Build project glossary from `[glossary]` section.
+        let eff_glossary = cfg_ref
+            .and_then(|c| c.glossary.as_ref())
+            .map(|g| zhtw_mcp::rules::glossary::ProjectGlossary {
+                banned: g.banned.clone().unwrap_or_default(),
+                preferred: g.preferred.clone().unwrap_or_default(),
+                proper_nouns: g.proper_nouns.clone().unwrap_or_default(),
+            })
+            .unwrap_or_default();
+
         if detect_style && !matches!(lint_format, LintFormat::Json) {
             anyhow::bail!("--detect-style is only supported with --format json");
         }
@@ -598,12 +622,15 @@ fn main() -> Result<()> {
             #[cfg(feature = "translate")]
             verify,
             relaxed: eff_relaxed,
+            exempt_blockquotes: eff_exempt_blockquotes,
             detect_ai,
             detect_translationese,
             detect_style,
             translationese_domain,
             ai_threshold_multiplier,
             tm_path: Some(eff_tm_path),
+            glossary: eff_glossary,
+            consistency,
             telemetry,
         });
     }
@@ -698,6 +725,10 @@ struct CliFileOutput {
     /// is active.
     #[serde(skip_serializing_if = "Option::is_none")]
     style_scorecard: Option<zhtw_mcp::engine::style_score::StyleScorecard>,
+    /// Document-wide consistency report (35.1).  Present only when
+    /// --consistency is set AND mixed regional usage is detected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consistency: Option<zhtw_mcp::engine::consistency::ConsistencyReport>,
 }
 
 #[derive(serde::Serialize)]
@@ -798,6 +829,7 @@ struct LintBatchParams<'a> {
     #[cfg(feature = "translate")]
     verify: bool,
     relaxed: bool,
+    exempt_blockquotes: bool,
     detect_ai: bool,
     detect_translationese: bool,
     /// Emit composite three-axis style scorecard alongside the per-axis
@@ -808,6 +840,15 @@ struct LintBatchParams<'a> {
     translationese_domain: zhtw_mcp::engine::translationese_score::TranslationeseDomain,
     ai_threshold_multiplier: f32,
     tm_path: Option<PathBuf>,
+    /// Project glossary (`[glossary]` section in `.zhtw-mcp.toml`).
+    /// Applied as a post-scan step: `proper_nouns` suppress matching
+    /// issues, `banned` injects synthetic Error issues for any
+    /// occurrence the embedded ruleset missed.
+    glossary: zhtw_mcp::rules::glossary::ProjectGlossary,
+    /// When true, append a `consistency` block to JSON output (35.1):
+    /// per-equivalence-class diagnostic when both the calque and the
+    /// canonical TW form appear in the same document.
+    consistency: bool,
     telemetry: bool,
 }
 
@@ -824,6 +865,9 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
     let mut cfg = profile.config();
     if params.relaxed {
         cfg = cfg.with_relaxed();
+    }
+    if params.exempt_blockquotes {
+        cfg = cfg.with_exempt_blockquotes(true);
     }
     if params.detect_ai {
         cfg.ai_filler_detection = true;
@@ -910,6 +954,39 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
     let mut baseline_count: usize = 0;
     let mut tabular_header_printed = false;
 
+    let apply_glossary_to_issues =
+        |work_text: &str,
+         content_type: zhtw_mcp::engine::scan::ContentType,
+         issues: Vec<zhtw_mcp::rules::ruleset::Issue>| {
+            if params.glossary.is_empty() {
+                return issues;
+            }
+            let md_opts = zhtw_mcp::engine::markdown::MdScanOptions::new(
+                matches!(
+                    content_type,
+                    zhtw_mcp::engine::scan::ContentType::MarkdownScanCode
+                ),
+                cfg.exempt_blockquotes,
+            );
+            let excluded = zhtw_mcp::engine::scan::build_exclusions_for_content_type_with_options(
+                work_text,
+                content_type,
+                md_opts,
+            );
+            let mut issues = zhtw_mcp::rules::glossary::apply_glossary(
+                work_text,
+                &excluded,
+                issues,
+                &params.glossary,
+            );
+            let line_index = zhtw_mcp::engine::lineindex::LineIndex::new(work_text);
+            line_index.fill_line_col_sorted(
+                &mut issues,
+                zhtw_mcp::engine::lineindex::ColumnEncoding::Utf16,
+            );
+            issues
+        };
+
     /// Maximum file size for CLI lint mode (16 MiB).
     const MAX_CLI_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -951,6 +1028,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
             detect_translationese: cfg.translationese_detection,
             translationese_domain: cfg.translationese_domain.name().to_owned(),
             ai_threshold: format!("{:.1}", params.ai_threshold_multiplier),
+            exempt_blockquotes: cfg.exempt_blockquotes,
         };
 
         // Open file via fd, stat from the fd (TOCTOU-safe).
@@ -974,9 +1052,27 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                 c.check_fast(file_arg, mtime, meta.len(), &cache_params)
                     .into_hit()
             });
+            // Glossary banned-term injection and the consistency report
+            // both scan the original text buffer; the fast path can
+            // only short-circuit when neither feature needs it.  Same
+            // story for fix/SC/verify.
+            let need_text_post_scan = params.fix_mode != zhtw_mcp::fixer::FixMode::None
+                || !params.glossary.is_empty()
+                || params.consistency
+                || {
+                    #[cfg(feature = "translate")]
+                    {
+                        params.verify
+                    }
+                    #[cfg(not(feature = "translate"))]
+                    {
+                        false
+                    }
+                };
             if let Some(hit) = fast_hit {
-                if !hit.input_was_sc {
-                    // Cache hit for non-SC file — skip file read and scan.
+                if !hit.input_was_sc && !need_text_post_scan {
+                    // Cache hit AND no later phase needs the text:
+                    // skip file read and scan.
                     return Ok((
                         String::new(),
                         false,
@@ -985,7 +1081,10 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                         content_type,
                     ));
                 }
-                // SC files need the text for S2T write-back; fall through.
+                // SC files need the text for S2T write-back; glossary
+                // / consistency / fix / verify need the original
+                // buffer.  Fall through to the slow path so we read
+                // the file and reuse the cached scan output below.
             }
 
             // Slow path: read file from the same fd.
@@ -1030,16 +1129,22 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
 
             // Drop text eagerly when not needed for fix/write-back/verify
             // to avoid accumulating all files' text in parallel scans.
-            let need_text = input_was_sc || params.fix_mode != zhtw_mcp::fixer::FixMode::None || {
-                #[cfg(feature = "translate")]
-                {
-                    params.verify
-                }
-                #[cfg(not(feature = "translate"))]
-                {
-                    false
-                }
-            };
+            // Project glossary banned-term scanning and the 35.1
+            // consistency report both scan the original buffer.
+            let need_text = input_was_sc
+                || params.fix_mode != zhtw_mcp::fixer::FixMode::None
+                || !params.glossary.is_empty()
+                || params.consistency
+                || {
+                    #[cfg(feature = "translate")]
+                    {
+                        params.verify
+                    }
+                    #[cfg(not(feature = "translate"))]
+                    {
+                        false
+                    }
+                };
             if !need_text {
                 text = String::new();
             }
@@ -1101,6 +1206,14 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
         let mut ai_signature = output.ai_signature;
         let mut translationese_signature = output.translationese_signature;
         let mut issues = output.issues;
+
+        // 35.9 — Apply project glossary precedence (proper_noun
+        // suppression + banned-term injection) before disambiguation,
+        // so the rest of the pipeline sees the canonical issue list.
+        // Synthetic banned-term issues land with `line: 0, col: 0` from
+        // `Issue::new`; reapply LineIndex so output formatters and the
+        // 35.1 consistency report see correct coordinates.
+        issues = apply_glossary_to_issues(&text, content_type, issues);
 
         // Tier 2: local disambiguation.
         let disambig_cfg = zhtw_mcp::engine::disambig::DisambigConfig {
@@ -1198,7 +1311,7 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                 // Suppress convergent-chain noise from the fixer's own replacements.
                 zhtw_mcp::fixer::suppress_convergent_issues(&mut rescan, &fix.applied_fixes);
             }
-            rescan
+            apply_glossary_to_issues(rescan_text, content_type, rescan)
         } else {
             issues
         };
@@ -1227,6 +1340,8 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
 
         // Apply TM suppressions: downgrade rejected terms to Info severity.
         // Only lexical/contextual issue types; orthographic types are immune.
+        // Glossary-banned issues (35.9 precedence: banned > TM) are also
+        // immune — the project explicitly asked for these to always fire.
         let mut tm_suppressed: usize = 0;
         let report_issues = if let Some(ref tm) = tm_store {
             let mut issues = report_issues;
@@ -1238,6 +1353,10 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                     | zhtw_mcp::rules::ruleset::IssueType::Grammar
                     | zhtw_mcp::rules::ruleset::IssueType::AiStyle => continue,
                     _ => {}
+                }
+                let is_glossary_banned = zhtw_mcp::rules::glossary::is_glossary_banned(issue);
+                if is_glossary_banned {
+                    continue;
                 }
                 if tm.should_suppress(&issue.found)
                     && issue.severity != zhtw_mcp::rules::ruleset::Severity::Info
@@ -1336,6 +1455,23 @@ fn run_lint_batch(params: &LintBatchParams<'_>) -> Result<()> {
                     } else {
                         None
                     },
+                    consistency: params
+                        .consistency
+                        .then(|| {
+                            let consistency_text = if has_text_changes && !params.dry_run {
+                                fix_result
+                                    .as_ref()
+                                    .map_or(text.as_str(), |f| f.text.as_str())
+                            } else {
+                                text.as_str()
+                            };
+                            zhtw_mcp::engine::consistency::compute_consistency_report(
+                                consistency_text,
+                                &report_issues,
+                                &params.glossary,
+                            )
+                        })
+                        .filter(|r| !r.is_empty()),
                 };
                 if multi {
                     all_file_results.push(output);

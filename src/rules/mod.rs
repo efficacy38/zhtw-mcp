@@ -1,3 +1,4 @@
+pub mod glossary;
 #[cfg(feature = "native")]
 pub mod judgment_cache;
 pub mod loader;

@@ -14,27 +14,86 @@ use super::excluded::{merge_ranges_pub, ByteRange};
 /// and YAML frontmatter (leading --- fences).
 ///
 /// The returned ranges are sorted by start position and non-overlapping.
+/// Options controlling Markdown structural exclusion.  Defaults match
+/// the historical behavior of [build_markdown_excluded_ranges]: code
+/// blocks excluded, blockquotes scanned.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MdScanOptions {
+    /// When true, fenced/indented code blocks are NOT excluded (i.e. the
+    /// scanner sees code-block prose).  Used by the
+    /// `MarkdownScanCode` content type.
+    pub scan_code_blocks: bool,
+    /// When true, the byte ranges of pulldown-cmark `Tag::BlockQuote`
+    /// events are excluded.  Implemented via cmark events so that nested
+    /// blockquotes (`> >`), lazy continuation lines, and blockquotes
+    /// inside list items behave correctly.  Off by default — adopted
+    /// blockquote prose is real content (35.7).
+    pub exempt_blockquotes: bool,
+}
+
+impl MdScanOptions {
+    /// Construct options for a Markdown scan: pass `scan_code_blocks=true`
+    /// when running with the `MarkdownScanCode` content type, and propagate
+    /// the caller's `--exempt-blockquotes` flag.  Centralizes the literal
+    /// previously copy-pasted across the CLI and MCP entry points.
+    pub fn new(scan_code_blocks: bool, exempt_blockquotes: bool) -> Self {
+        Self {
+            scan_code_blocks,
+            exempt_blockquotes,
+        }
+    }
+}
+
 pub fn build_markdown_excluded_ranges(text: &str) -> Vec<ByteRange> {
+    build_markdown_excluded_ranges_with_options(text, MdScanOptions::default())
+}
+
+/// Like [build_markdown_excluded_ranges], but fenced/indented code blocks are
+/// NOT excluded.  Only inline code (`backtick`), HTML, and YAML frontmatter
+/// are excluded.  This allows linting Chinese prose inside code blocks
+/// (comments, translated output, etc.) while still protecting inline code
+/// and HTML from false positives.
+pub fn build_markdown_excluded_ranges_no_code(text: &str) -> Vec<ByteRange> {
+    build_markdown_excluded_ranges_with_options(
+        text,
+        MdScanOptions {
+            scan_code_blocks: true,
+            ..MdScanOptions::default()
+        },
+    )
+}
+
+/// Build Markdown exclusion ranges with explicit options.  Backbone for the
+/// two named wrappers above, plus opt-in features like 35.7's
+/// `exempt_blockquotes`.
+pub fn build_markdown_excluded_ranges_with_options(
+    text: &str,
+    opts: MdScanOptions,
+) -> Vec<ByteRange> {
     let mut ranges = Vec::new();
 
     // Pre-pass: detect YAML frontmatter (leading --- fence).  Exclude only
-    // the structural tokens (--- fences, key+colon spans), leaving value
-    // prose scannable so that linting catches issues in title/description.
+    // the structural tokens (--- fences, key+colon spans, ASCII quote
+    // delimiters), leaving value prose scannable so that linting catches
+    // issues in title/description.
     if let Some(fm_end) = detect_frontmatter(text) {
         collect_frontmatter_structural_ranges(text, fm_end, &mut ranges);
     }
 
     collect_container_fence_ranges(text, &mut ranges);
 
-    let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
-    let parser = Parser::new_ext(text, opts);
+    let parser_opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let parser = Parser::new_ext(text, parser_opts);
     let mut in_code_block = false;
     let mut code_block_start = 0usize;
+    let mut blockquote_depth: usize = 0;
+    let mut blockquote_start: usize = 0;
 
     for (event, range) in parser.into_offset_iter() {
         match event {
-            // Fenced or indented code blocks: exclude entire block.
-            Event::Start(Tag::CodeBlock(_)) => {
+            // Fenced or indented code blocks: exclude entire block (default)
+            // or scan their prose (when scan_code_blocks is set).
+            Event::Start(Tag::CodeBlock(_)) if !opts.scan_code_blocks => {
                 in_code_block = true;
                 code_block_start = range.start;
             }
@@ -44,6 +103,22 @@ pub fn build_markdown_excluded_ranges(text: &str) -> Vec<ByteRange> {
                     end: range.end,
                 });
                 in_code_block = false;
+            }
+
+            Event::Start(Tag::BlockQuote(_)) if opts.exempt_blockquotes => {
+                if blockquote_depth == 0 {
+                    blockquote_start = range.start;
+                }
+                blockquote_depth = blockquote_depth.saturating_add(1);
+            }
+            Event::End(TagEnd::BlockQuote(_)) if opts.exempt_blockquotes => {
+                blockquote_depth = blockquote_depth.saturating_sub(1);
+                if blockquote_depth == 0 {
+                    ranges.push(ByteRange {
+                        start: blockquote_start,
+                        end: range.end,
+                    });
+                }
             }
 
             // Inline code: exclude the span including backticks.
@@ -59,42 +134,6 @@ pub fn build_markdown_excluded_ranges(text: &str) -> Vec<ByteRange> {
     }
 
     // Sort and merge (frontmatter + parser ranges may overlap).
-    merge_ranges_pub(ranges)
-}
-
-/// Like [build_markdown_excluded_ranges], but fenced/indented code blocks are
-/// NOT excluded.  Only inline code (`backtick`), HTML, and YAML frontmatter
-/// are excluded.  This allows linting Chinese prose inside code blocks
-/// (comments, translated output, etc.) while still protecting inline code
-/// and HTML from false positives.
-pub fn build_markdown_excluded_ranges_no_code(text: &str) -> Vec<ByteRange> {
-    let mut ranges = Vec::new();
-
-    // Pre-pass: detect YAML frontmatter — exclude structural tokens only.
-    if let Some(fm_end) = detect_frontmatter(text) {
-        collect_frontmatter_structural_ranges(text, fm_end, &mut ranges);
-    }
-
-    collect_container_fence_ranges(text, &mut ranges);
-
-    let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
-    let parser = Parser::new_ext(text, opts);
-
-    for (event, range) in parser.into_offset_iter() {
-        match event {
-            // Skip code blocks entirely — let them be scanned.
-            Event::Start(Tag::CodeBlock(_)) | Event::End(TagEnd::CodeBlock) => {}
-            // Inline code and HTML: still exclude.
-            Event::Code(_) | Event::Html(_) | Event::InlineHtml(_) => {
-                ranges.push(ByteRange {
-                    start: range.start,
-                    end: range.end,
-                });
-            }
-            _ => {}
-        }
-    }
-
     merge_ranges_pub(ranges)
 }
 
@@ -291,7 +330,10 @@ pub fn extract_heading_ranges(text: &str) -> Vec<ByteRange> {
 }
 
 /// Collect YAML frontmatter structural ranges: opening `---` line, closing
-/// `---` line, and per-line key+colon spans.  Values remain scannable.
+/// `---` line, per-line key+colon spans, and bare ASCII `"` / `'` quote
+/// bytes used as scalar delimiters.  Values remain scannable; only the
+/// 1-byte delimiters are masked from the punctuation scanner so that
+/// downstream YAML parsers continue to see ASCII quotes (35.7).
 fn collect_frontmatter_structural_ranges(text: &str, fm_end: usize, ranges: &mut Vec<ByteRange>) {
     let fm = &text[..fm_end];
     let mut pos = 0usize;
@@ -310,6 +352,20 @@ fn collect_frontmatter_structural_ranges(text: &str, fm_end: usize, ranges: &mut
                 start: pos,
                 end: pos + colon_pos + 1,
             });
+        }
+
+        // Preserve ASCII `"` and `'` bytes used as YAML scalar delimiters
+        // by excluding them from the punctuation scanner.  Without this,
+        // the scanner converts `"` to `「`/`」` inside frontmatter values
+        // and breaks downstream YAML parsers (regression observed in
+        // ai-muninn.com calque blindspot sweep, 2026-05).
+        for (i, b) in raw_line.bytes().enumerate() {
+            if b == b'"' || b == b'\'' {
+                ranges.push(ByteRange {
+                    start: pos + i,
+                    end: pos + i + 1,
+                });
+            }
         }
 
         pos += line_len + 1; // +1 for the '\n'

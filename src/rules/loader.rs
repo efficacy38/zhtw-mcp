@@ -45,6 +45,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let case_rules = vec![CaseRule {
             term: "JavaScript".into(),
@@ -73,6 +74,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let rules_b = vec![SpellingRule {
             from: "內存".into(),
@@ -87,6 +89,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let case_rules: Vec<CaseRule> = vec![];
 

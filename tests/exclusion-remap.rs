@@ -30,6 +30,7 @@ fn cross_strait(from: &str, to: &str) -> SpellingRule {
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 

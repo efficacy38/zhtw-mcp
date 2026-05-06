@@ -195,6 +195,7 @@ impl OverrideStore {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         };
         self.upsert_spelling_override(&rule)
     }
@@ -1065,6 +1066,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "內存".into(),
@@ -1079,6 +1081,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ]
     }
@@ -1126,6 +1129,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         };
         store.upsert_spelling_override(&override_rule).unwrap();
 
@@ -1148,6 +1152,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         };
         store.upsert_spelling_override(&new_rule).unwrap();
 
@@ -1231,6 +1236,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             };
             store.upsert_spelling_override(&rule).unwrap();
         }
@@ -1265,6 +1271,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             }],
             case: vec![],
         };

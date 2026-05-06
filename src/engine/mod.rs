@@ -1,4 +1,5 @@
 pub mod ai_score;
+pub mod consistency;
 pub mod disambig;
 pub mod excluded;
 pub mod lineindex;

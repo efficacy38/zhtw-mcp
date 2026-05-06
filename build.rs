@@ -33,6 +33,16 @@ struct SpellingRule {
     positional_clues: Option<Vec<String>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    #[serde(default)]
+    editorial_confidence: Option<EditorialConfidence>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum EditorialConfidence {
+    High,
+    Medium,
+    Low,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

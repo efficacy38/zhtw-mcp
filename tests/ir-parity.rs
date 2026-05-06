@@ -41,6 +41,7 @@ fn spelling_with_clues(
         negative_context_clues: negative_clues.map(|v| v.into_iter().map(String::from).collect()),
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -57,6 +58,7 @@ fn spelling_with_exceptions(from: &str, to: &[&str], exceptions: Vec<&str>) -> S
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -73,6 +75,7 @@ fn spelling_variant(from: &str, to: &[&str]) -> SpellingRule {
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -89,6 +92,7 @@ fn spelling_ai_filler(from: &str, to: &[&str]) -> SpellingRule {
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -105,6 +109,7 @@ fn spelling_political(from: &str, to: &[&str]) -> SpellingRule {
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -122,6 +127,7 @@ fn spelling_deletion(from: &str) -> SpellingRule {
         negative_context_clues: None,
         positional_clues: None,
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -138,6 +144,7 @@ fn spelling_with_positional(from: &str, to: &[&str], positional: Vec<&str>) -> S
         negative_context_clues: None,
         positional_clues: Some(positional.into_iter().map(String::from).collect()),
         tags: None,
+        editorial_confidence: None,
     }
 }
 
@@ -160,6 +167,7 @@ fn ir_cross_strait_fires() {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }],
         vec![],
     );
@@ -349,6 +357,7 @@ fn ir_superstring_absorption() {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }],
         vec![],
     );
@@ -637,6 +646,7 @@ fn ir_markdown_code_exclusion() {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }],
         vec![],
     );
