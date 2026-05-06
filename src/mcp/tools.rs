@@ -23,9 +23,7 @@ use crate::audit::Trace;
 use crate::engine::disambig::{disambiguate_batch, DisambigConfig, DisambigStats};
 use crate::engine::excluded::ByteRange;
 use crate::engine::s2t::S2TConverter;
-use crate::engine::scan::{
-    build_exclusions_for_content_type, is_spaced_acronym_issue, ContentType, Scanner,
-};
+use crate::engine::scan::{is_spaced_acronym_issue, ContentType, Scanner};
 #[cfg(feature = "translate")]
 use crate::engine::translate::calibrate_issues;
 use crate::engine::zhtype::{detect_chinese_type, ChineseType};
@@ -410,6 +408,18 @@ impl Server {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let exempt_blockquotes = args
+            .get("exempt_blockquotes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let glossary = parse_glossary(args);
+
+        let consistency_requested = args
+            .get("consistency")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let include_telemetry = args
             .get("include_telemetry")
             .and_then(|v| v.as_bool())
@@ -451,6 +461,9 @@ impl Server {
         let mut cfg = profile.config();
         if relaxed {
             cfg = cfg.with_relaxed();
+        }
+        if exempt_blockquotes {
+            cfg = cfg.with_exempt_blockquotes(true);
         }
         if let Some(st) = stance {
             cfg = cfg.with_stance(st);
@@ -506,6 +519,30 @@ impl Server {
             };
         }
 
+        let apply_glossary_to_issues = |work_text: &str, issues: Vec<Issue>| -> Vec<Issue> {
+            if glossary.is_empty() {
+                return issues;
+            }
+            let md_opts = crate::engine::markdown::MdScanOptions::new(
+                matches!(
+                    content_type,
+                    crate::engine::scan::ContentType::MarkdownScanCode
+                ),
+                cfg.exempt_blockquotes,
+            );
+            let excluded = crate::engine::scan::build_exclusions_for_content_type_with_options(
+                work_text,
+                content_type,
+                md_opts,
+            );
+            let mut issues =
+                crate::rules::glossary::apply_glossary(work_text, &excluded, issues, &glossary);
+            let line_index = crate::engine::lineindex::LineIndex::new(work_text);
+            line_index
+                .fill_line_col_sorted(&mut issues, crate::engine::lineindex::ColumnEncoding::Utf16);
+            issues
+        };
+
         Ok(match fix_mode {
             FixMode::None => {
                 // Lint-only path.
@@ -558,6 +595,22 @@ impl Server {
                 self.apply_suppressions(&mut issues);
                 let tm_suppressed = self.apply_tm(&mut issues);
                 apply_ignore_set(&mut issues, &ignore_set);
+
+                // 35.9 — Apply project glossary precedence (banned > TM):
+                // proper_nouns suppress, banned inject synthetic Errors.
+                // Recompute exclusion ranges so banned-term scanning
+                // respects code blocks, URLs, and frontmatter.  Re-fill
+                // line/col on synthetic issues.
+                issues = apply_glossary_to_issues(text, issues);
+
+                // 35.1 — Document-wide consistency report.
+                let consistency_report = consistency_requested
+                    .then(|| {
+                        crate::engine::consistency::compute_consistency_report(
+                            text, &issues, &glossary,
+                        )
+                    })
+                    .filter(|r| !r.is_empty());
 
                 // Build telemetry if requested.
                 let telemetry = if include_telemetry {
@@ -623,12 +676,24 @@ impl Server {
                     disambig_stats,
                     telemetry,
                     include_stats,
+                    consistency: consistency_report.as_ref(),
                 })
             }
 
             mode @ (FixMode::Orthographic | FixMode::LexicalSafe | FixMode::LexicalContextual) => {
                 // Fix path: scan, apply fixes, re-scan for residual issues.
-                let excluded = build_exclusions_for_content_type(text, content_type);
+                let md_opts = crate::engine::markdown::MdScanOptions::new(
+                    matches!(
+                        content_type,
+                        crate::engine::scan::ContentType::MarkdownScanCode
+                    ),
+                    cfg.exempt_blockquotes,
+                );
+                let excluded = crate::engine::scan::build_exclusions_for_content_type_with_options(
+                    text,
+                    content_type,
+                    md_opts,
+                );
                 let scan_out = self.scanner.scan_with_prebuilt_excluded_config(
                     text,
                     &excluded,
@@ -679,6 +744,7 @@ impl Server {
                 // prevents fixing TM-rejected terms, and the post-fix apply_tm
                 // handles severity downgrade + counting on the final residual.
                 apply_ignore_set(&mut issues, &ignore_set);
+                issues = apply_glossary_to_issues(text, issues);
 
                 // Snapshot AFTER suppressions so restored severity reflects final state.
                 struct PreservedState {
@@ -784,9 +850,21 @@ impl Server {
                 // whose offset falls within a byte range written by the fixer.
                 suppress_convergent_issues(&mut remaining_issues, &fix_result.applied_fixes);
 
+                remaining_issues = apply_glossary_to_issues(&fix_result.text, remaining_issues);
+
                 // Apply TM after preserved state restoration so the count
                 // reflects the true final state, not a pre-fix snapshot.
                 let tm_suppressed = self.apply_tm(&mut remaining_issues);
+
+                let consistency_report = consistency_requested
+                    .then(|| {
+                        crate::engine::consistency::compute_consistency_report(
+                            &fix_result.text,
+                            &remaining_issues,
+                            &glossary,
+                        )
+                    })
+                    .filter(|r| !r.is_empty());
 
                 // Build telemetry if requested.
                 let telemetry = if include_telemetry {
@@ -853,6 +931,7 @@ impl Server {
                     disambig_stats,
                     telemetry,
                     include_stats,
+                    consistency: consistency_report.as_ref(),
                 })
             }
         })
@@ -884,6 +963,15 @@ impl Server {
                 | IssueType::Grammar
                 | IssueType::AiStyle => continue,
                 _ => {}
+            }
+            // Glossary-banned terms are project-wide truth (banned > TM
+            // per the documented precedence).  The provenance tag is
+            // set by `apply_glossary` either by injecting a synthetic
+            // Error or by upgrading a covering issue; either way TM
+            // must not downgrade these.
+            let is_glossary_banned = crate::rules::glossary::is_glossary_banned(issue);
+            if is_glossary_banned {
+                continue;
             }
             if tm.should_suppress(&issue.found) && issue.severity != Severity::Info {
                 issue.severity = Severity::Info;
@@ -996,9 +1084,12 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "max_warnings",
             "profile",
             "relaxed",
+            "exempt_blockquotes",
             "content_type",
             "political_stance",
             "ignore_terms",
+            "glossary",
+            "consistency",
             "explain",
             "fix_output",
             "verify",
@@ -1021,9 +1112,12 @@ fn zhtw_known_params() -> &'static [&'static str] {
             "max_warnings",
             "profile",
             "relaxed",
+            "exempt_blockquotes",
             "content_type",
             "political_stance",
             "ignore_terms",
+            "glossary",
+            "consistency",
             "explain",
             "fix_output",
             "output",
@@ -1522,6 +1616,29 @@ fn parse_ignore_terms(args: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Parse the optional `glossary` object (35.9).  Shape:
+/// `{ "banned": [...], "preferred": [...], "proper_nouns": [...] }`.
+/// Each field is optional.  Missing object → empty glossary.
+fn parse_glossary(args: &Value) -> crate::rules::glossary::ProjectGlossary {
+    fn array_of_strings(v: Option<&Value>) -> Vec<String> {
+        v.and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    let Some(glossary) = args.get("glossary").and_then(|v| v.as_object()) else {
+        return crate::rules::glossary::ProjectGlossary::default();
+    };
+    crate::rules::glossary::ProjectGlossary {
+        banned: array_of_strings(glossary.get("banned")),
+        preferred: array_of_strings(glossary.get("preferred")),
+        proper_nouns: array_of_strings(glossary.get("proper_nouns")),
+    }
+}
+
 /// Remove political_coloring issues that the given stance suppresses.
 fn filter_by_stance(issues: &mut Vec<Issue>, stance: PoliticalStance) {
     issues.retain(|issue| {
@@ -1653,6 +1770,136 @@ struct AnchorProvenance<'a> {
     anchor_match: Option<bool>,
 }
 
+// `EditorialConfidence` is canonical-defined in `crate::rules::ruleset`
+// so that `SpellingRule.editorial_confidence` and the per-issue field
+// share a single type.  Re-exported here for the explain pipeline.
+use crate::rules::ruleset::EditorialConfidence;
+
+/// Structured per-issue explain metadata (35.2).
+///
+/// Surfaced only when `explain` is requested.  Helps reviewers understand
+/// the confidence behind each suggestion without parsing free-form prose.
+#[derive(Serialize)]
+struct ExplainMeta<'a> {
+    /// Why this is flagged.  Sourced from rule context + MoE refs when
+    /// available; falls back to a structured restatement of the
+    /// suggestion target.
+    rationale: String,
+    /// Domain that triggered the rule.  Parsed from `@domain X` markers
+    /// in the rule's context field; defaults to "general".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<&'a str>,
+    /// True when the surface form is identical across zh-CN and zh-TW
+    /// but the meaning differs (e.g. 文件: document vs file).
+    is_false_friend: bool,
+    /// Whether `--fix` would safely apply this suggestion.
+    auto_fix_safe: bool,
+    /// Whether the suggestion benefits from manual review.
+    needs_review: bool,
+    /// Per-issue editorial confidence — distinguishes binary corrections
+    /// from style preferences (e.g. 優化, 算法 are valid zh-TW general
+    /// vocabulary; 演算法 is the canonical computing form).
+    editorial_confidence: EditorialConfidence,
+}
+
+/// Heuristic fallback when an issue lacks a rule-level
+/// `editorial_confidence`.  Translationese / AI-style / grammar hits and
+/// any `Info`-severity or anchor-rejected issue are surfaced as `Low`;
+/// hits with explicit context support climb to `Medium`; everything else
+/// is `High`.
+fn heuristic_editorial_confidence(issue: &Issue) -> EditorialConfidence {
+    use crate::rules::ruleset::{IssueType, Severity};
+
+    let always_low = matches!(
+        issue.rule_type,
+        IssueType::Translationese | IssueType::AiStyle | IssueType::Grammar
+    ) || issue.severity == Severity::Info
+        || issue.anchor_match == Some(false);
+    if always_low {
+        return EditorialConfidence::Low;
+    }
+    if issue.context_clues.is_some() || issue.anchor_match == Some(true) {
+        EditorialConfidence::Medium
+    } else {
+        EditorialConfidence::High
+    }
+}
+
+/// Derive structured explain metadata for an issue.
+///
+/// Confidence resolution order:
+///   1. Honor `issue.editorial_confidence` if the rule annotated it
+///      (set in `assets/ruleset.json` per-rule).
+///   2. Otherwise, fall back to heuristics on rule type / severity /
+///      anchor_match / context_clues.
+///
+/// Invariants: `editorial_confidence == Low` ⇒ `auto_fix_safe = false`
+/// AND `needs_review = true`.
+fn derive_explain_meta(issue: &Issue) -> ExplainMeta<'_> {
+    use crate::rules::ruleset::IssueType;
+
+    // -- Domain extraction from `@domain X` markers in the rule context.
+    let domain = issue.context.as_deref().and_then(|c| {
+        let needle = "@domain ";
+        c.find(needle).map(|i| {
+            let rest = &c[i + needle.len()..];
+            // Take up to the first whitespace, full-width comma, or period.
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == '\u{FF0C}' || c == '\u{3002}')
+                .unwrap_or(rest.len());
+            rest[..end].trim()
+        })
+    });
+
+    // -- Editorial confidence.
+    // Rule-level annotation wins (from assets/ruleset.json
+    // `editorial_confidence`); else heuristics on rule type / severity /
+    // anchor_match / context_clues.
+    let editorial_confidence = issue
+        .editorial_confidence
+        .unwrap_or_else(|| heuristic_editorial_confidence(issue));
+
+    // -- False-friend detection.
+    // Confusable rules are the canonical false friends.  Rule-tagged
+    // low-confidence terms are also surfaced as false friends because
+    // their surface form is shared across regions with divergent senses.
+    let is_false_friend = matches!(issue.rule_type, IssueType::Confusable)
+        || matches!(editorial_confidence, EditorialConfidence::Low)
+            && issue.editorial_confidence.is_some();
+
+    // -- Auto-fix safety + review need.
+    // Invariant: `low` confidence forces auto_fix_safe=false +
+    // needs_review=true.  Otherwise punctuation / case / variant / typo
+    // hits with a single suggestion are auto-fix safe.
+    let single_unambiguous = issue.suggestions.len() == 1
+        && matches!(
+            issue.rule_type,
+            IssueType::Punctuation | IssueType::Case | IssueType::Variant | IssueType::Typo
+        );
+
+    let auto_fix_safe =
+        !matches!(editorial_confidence, EditorialConfidence::Low) && single_unambiguous;
+
+    let needs_review = matches!(editorial_confidence, EditorialConfidence::Low)
+        || issue.suggestions.len() > 1
+        || matches!(
+            issue.rule_type,
+            IssueType::Translationese | IssueType::AiStyle | IssueType::Grammar
+        );
+
+    let rationale = build_explanation(issue)
+        .unwrap_or_else(|| format!("'{}' flagged by {:?} rule.", issue.found, issue.rule_type));
+
+    ExplainMeta {
+        rationale,
+        domain,
+        is_false_friend,
+        auto_fix_safe,
+        needs_review,
+        editorial_confidence,
+    }
+}
+
 /// Anchor provenance for compact mode (owned).
 #[derive(Serialize)]
 struct AnchorProvenanceOwned {
@@ -1671,6 +1918,11 @@ struct AnnotatedIssue<'a> {
     explanation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     anchor_provenance: Option<AnchorProvenance<'a>>,
+    /// Structured per-issue explain metadata (35.2).  Present only in
+    /// explain mode.  Carries domain, false-friend flag, auto-fix
+    /// safety, review burden, and editorial confidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    explain_meta: Option<ExplainMeta<'a>>,
     /// Resolution tier: which pipeline stage authored this issue's resolution.
     /// Present only when `include_stats` is true.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1743,6 +1995,11 @@ struct FullOutput<'a> {
     telemetry: Option<&'a TelemetryMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_metrics: Option<&'a SummaryMetrics>,
+    /// Document-wide consistency report (35.1).  Present only when the
+    /// caller passed `consistency: true` AND mixed regional usage
+    /// (both `線程` and `執行緒`, etc.) is detected in the document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consistency: Option<&'a crate::engine::consistency::ConsistencyReport>,
 }
 
 /// Compact tool response (serialized directly, no intermediate Value).
@@ -1885,6 +2142,10 @@ struct CheckOutputParams<'a> {
     telemetry: Option<TelemetryMetrics>,
     /// Whether to include per-issue resolution tier and summary_metrics.
     include_stats: bool,
+    /// Document-wide consistency report (35.1).  Some only when the
+    /// caller requested `consistency: true` AND mixed regional usage
+    /// is detected.
+    consistency: Option<&'a crate::engine::consistency::ConsistencyReport>,
 }
 
 /// Build telemetry metrics from accumulated counters.
@@ -2043,6 +2304,7 @@ fn build_check_output(params: &CheckOutputParams<'_>) -> CallToolResult {
                 style_scorecard: params.style_scorecard,
                 telemetry: params.telemetry.as_ref(),
                 summary_metrics: stats_metrics.as_ref(),
+                consistency: params.consistency,
             };
             serialize_output(&output)
         }
@@ -2163,10 +2425,16 @@ fn build_issues_list<'a>(
                 } else {
                     None
                 };
+                let explain_meta = if explain {
+                    Some(derive_explain_meta(issue))
+                } else {
+                    None
+                };
                 AnnotatedIssue {
                     issue,
                     explanation,
                     anchor_provenance,
+                    explain_meta,
                     resolution,
                 }
             })
@@ -2568,6 +2836,10 @@ fn tool_definitions() -> Vec<ToolDef> {
                 "type": "boolean",
                 "description": "Capability flag for software UI strings: disables colon enforcement, dunhao detection, grammar checks; uses en-dash for ranges"
             }));
+            props.insert("exempt_blockquotes".into(), json!({
+                "type": "boolean",
+                "description": "Markdown only: exclude pulldown-cmark `Tag::BlockQuote` ranges from scanning.  Useful when a document quotes mainland-Chinese sources for illustrative purposes.  Off by default."
+            }));
             props.insert("content_type".into(), json!({
                 "type": "string",
                 "enum": ["plain", "markdown", "markdown-scan-code", "yaml"]
@@ -2579,6 +2851,19 @@ fn tool_definitions() -> Vec<ToolDef> {
             props.insert("ignore_terms".into(), json!({
                 "type": "array",
                 "items": { "type": "string" }
+            }));
+            props.insert("glossary".into(), json!({
+                "type": "object",
+                "description": "Project-level glossary.  `banned` terms always fire (project-wide truth, banned > TM); `proper_nouns` suppress matching issues; `preferred` chooses canonical TW form for the consistency report.",
+                "properties": {
+                    "banned": { "type": "array", "items": { "type": "string" } },
+                    "preferred": { "type": "array", "items": { "type": "string" } },
+                    "proper_nouns": { "type": "array", "items": { "type": "string" } },
+                }
+            }));
+            props.insert("consistency".into(), json!({
+                "type": "boolean",
+                "description": "Emit a `consistency` block when both regional variants of one concept appear in the document (e.g. both 線程 and 執行緒).  Off by default."
             }));
             props.insert("explain".into(), json!({ "type": "boolean" }));
             props.insert("fix_output".into(), json!({
@@ -2646,6 +2931,152 @@ mod tests {
     use super::*;
     use crate::mcp::types::RequestId;
     use crate::rules::ruleset::Tier2Outcome;
+
+    /// 35.2 — high confidence: cross_strait without context_clues, single
+    /// suggestion.  Auto-fix safety still gated on rule_type being one of
+    /// the unambiguous classes (Punctuation/Case/Variant/Typo); a plain
+    /// CrossStrait keeps `auto_fix_safe=false` because the choice between
+    /// suggestions is editorial.
+    #[test]
+    fn explain_meta_high_confidence_for_unambiguous_cross_strait() {
+        let mut issue = Issue::new(
+            0,
+            6,
+            "線程",
+            vec!["執行緒".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        );
+        issue.english = Some(std::sync::Arc::from("thread"));
+        let meta = derive_explain_meta(&issue);
+        assert!(matches!(
+            meta.editorial_confidence,
+            EditorialConfidence::High
+        ));
+        assert!(!meta.is_false_friend);
+        assert!(!meta.needs_review);
+    }
+
+    /// 35.2 — rule-tagged low confidence (e.g. `優化`, `算法`, `場景`
+    /// in `assets/ruleset.json`) surfaces as `low` so reviewers know
+    /// they are editorial preference, not binary error.  Invariant:
+    /// low ⇒ auto_fix_safe=false AND needs_review=true.
+    #[test]
+    fn explain_meta_low_confidence_for_rule_tagged_boundary_terms() {
+        for boundary in &["優化", "算法", "場景"] {
+            let mut issue = Issue::new(
+                0,
+                boundary.len(),
+                *boundary,
+                vec!["演算法".into()],
+                IssueType::CrossStrait,
+                Severity::Warning,
+            );
+            issue.editorial_confidence = Some(EditorialConfidence::Low);
+            let meta = derive_explain_meta(&issue);
+            assert!(
+                matches!(meta.editorial_confidence, EditorialConfidence::Low),
+                "rule-tagged {boundary} must be low confidence",
+            );
+            assert!(
+                !meta.auto_fix_safe,
+                "rule-tagged {boundary}: low ⇒ !auto_fix_safe"
+            );
+            assert!(
+                meta.needs_review,
+                "rule-tagged {boundary}: low ⇒ needs_review"
+            );
+            assert!(
+                meta.is_false_friend,
+                "rule-tagged {boundary}: marked false friend"
+            );
+        }
+    }
+
+    /// 35.2 — `@domain X` extraction populates the `domain` field.
+    #[test]
+    fn explain_meta_extracts_domain_from_context() {
+        let mut issue = Issue::new(
+            0,
+            6,
+            "用戶",
+            vec!["使用者".into()],
+            IssueType::CrossStrait,
+            Severity::Warning,
+        );
+        issue.context = Some(std::sync::Arc::from("@domain IT。其他註解"));
+        let meta = derive_explain_meta(&issue);
+        assert_eq!(meta.domain, Some("IT"));
+    }
+
+    /// 35.2 — Translationese / AiStyle / Grammar always demand review.
+    #[test]
+    fn explain_meta_translationese_marks_low_confidence() {
+        let issue = Issue::new(
+            0,
+            3,
+            "被",
+            vec!["主動句".into()],
+            IssueType::Translationese,
+            Severity::Info,
+        );
+        let meta = derive_explain_meta(&issue);
+        assert!(matches!(
+            meta.editorial_confidence,
+            EditorialConfidence::Low
+        ));
+        assert!(!meta.auto_fix_safe);
+        assert!(meta.needs_review);
+    }
+
+    /// 35.9 — `parse_glossary` extracts banned/preferred/proper_nouns
+    /// from the tool args object.
+    #[test]
+    fn parse_glossary_extracts_three_lists() {
+        let args = serde_json::json!({
+            "glossary": {
+                "banned": ["線程", "內存"],
+                "preferred": ["執行緒"],
+                "proper_nouns": ["TSMC"],
+            }
+        });
+        let g = parse_glossary(&args);
+        assert_eq!(g.banned, vec!["線程".to_string(), "內存".to_string()]);
+        assert_eq!(g.preferred, vec!["執行緒".to_string()]);
+        assert_eq!(g.proper_nouns, vec!["TSMC".to_string()]);
+    }
+
+    #[test]
+    fn parse_glossary_missing_object_returns_empty() {
+        let args = serde_json::json!({});
+        let g = parse_glossary(&args);
+        assert!(g.is_empty());
+    }
+
+    #[test]
+    fn parse_glossary_partial_fields_default_to_empty() {
+        let args = serde_json::json!({"glossary": {"banned": ["X"]}});
+        let g = parse_glossary(&args);
+        assert_eq!(g.banned, vec!["X".to_string()]);
+        assert!(g.preferred.is_empty());
+        assert!(g.proper_nouns.is_empty());
+    }
+
+    /// 35.2 — Punctuation with single suggestion is auto-fix safe.
+    #[test]
+    fn explain_meta_punctuation_is_auto_fix_safe() {
+        let issue = Issue::new(
+            0,
+            1,
+            ",",
+            vec!["，".into()],
+            IssueType::Punctuation,
+            Severity::Warning,
+        );
+        let meta = derive_explain_meta(&issue);
+        assert!(meta.auto_fix_safe);
+        assert!(!meta.needs_review);
+    }
 
     #[test]
     fn issue_summary_omits_zero_sampling_fields() {
@@ -3054,9 +3485,12 @@ mod tests {
             "max_warnings",
             "profile",
             "relaxed",
+            "exempt_blockquotes",
             "content_type",
             "political_stance",
             "ignore_terms",
+            "glossary",
+            "consistency",
             "explain",
             "fix_output",
             "output",
@@ -3227,6 +3661,89 @@ mod tests {
         );
         let output = assert_tool_success(&resp);
         assert_eq!(output["accepted"], true);
+    }
+
+    #[test]
+    fn tools_call_fix_respects_exempt_blockquotes() {
+        let (mut server, _dir) = make_initialized_server();
+        let text = "> 用戶輸入需要驗證。\n";
+        let resp = call_zhtw(
+            &mut server,
+            serde_json::json!({
+                "text": text,
+                "content_type": "markdown",
+                "exempt_blockquotes": true,
+                "fix_mode": "lexical_safe"
+            }),
+        );
+        let output = assert_tool_success(&resp);
+        assert_eq!(output["text"], text);
+        let issues = output["issues"].as_array().expect("issues array");
+        assert!(
+            !issues.iter().any(|i| i["found"] == "用戶"),
+            "blockquote text must stay exempt on MCP fix path; got {issues:?}"
+        );
+    }
+
+    #[test]
+    fn tools_call_fix_honors_glossary_banned_terms() {
+        let (mut server, _dir) = make_initialized_server();
+        let resp = call_zhtw(
+            &mut server,
+            serde_json::json!({
+                "text": "ABC 不該出現在文件中。\n",
+                "fix_mode": "lexical_safe",
+                "glossary": { "banned": ["ABC"] }
+            }),
+        );
+        let output = assert_tool_success(&resp);
+        let issues = output["issues"].as_array().expect("issues array");
+        assert!(
+            issues.iter().any(|i| i["found"] == "ABC"),
+            "glossary banned terms must remain active on fix path; got {issues:?}"
+        );
+    }
+
+    #[test]
+    fn tools_call_fix_honors_glossary_proper_nouns() {
+        let (mut server, _dir) = make_initialized_server();
+        let text = "我們的線程實作。\n";
+        let resp = call_zhtw(
+            &mut server,
+            serde_json::json!({
+                "text": text,
+                "fix_mode": "lexical_safe",
+                "glossary": { "proper_nouns": ["線程"] }
+            }),
+        );
+        let output = assert_tool_success(&resp);
+        assert_eq!(output["text"], text);
+        let issues = output["issues"].as_array().expect("issues array");
+        assert!(
+            !issues.iter().any(|i| i["found"] == "線程"),
+            "proper_nouns must suppress fix-path issues; got {issues:?}"
+        );
+    }
+
+    #[test]
+    fn tools_call_fix_returns_consistency_report() {
+        let (mut server, _dir) = make_initialized_server();
+        let resp = call_zhtw(
+            &mut server,
+            serde_json::json!({
+                "text": "我們的線程太慢，需要重構執行緒。\n",
+                "fix_mode": "orthographic",
+                "consistency": true
+            }),
+        );
+        let output = assert_tool_success(&resp);
+        let groups = output["consistency"]["groups"]
+            .as_array()
+            .expect("consistency groups");
+        assert!(
+            groups.iter().any(|g| g["term_group"] == "thread"),
+            "fix-path consistency report must be returned; got {groups:?}"
+        );
     }
 
     #[test]

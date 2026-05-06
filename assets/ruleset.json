@@ -1267,7 +1267,8 @@
       "type": "cross_strait",
       "context": "@domain IT。tw「優化」泛用於商業；IT optimize 改「最佳化」以區分 improve",
       "english": "optimize",
-      "negative_context_clues": ["流程", "體驗", "服務"]
+      "negative_context_clues": ["流程", "體驗", "服務"],
+      "editorial_confidence": "low"
     },
     {
       "from": "優步",
@@ -1302,7 +1303,7 @@
       "from": "元數據",
       "to": [],
       "type": "cross_strait",
-      "context": "@domain 資料。源自希臘文 meta- (關於) + data (資料)，原意為「描述資料的資料」",
+      "context": "@domain 資料。源自希臘文 meta- (關於) + data (資料)，原意為「描述資料的資料」。preferred: metadata；可接受: 詮釋資料 / 後設資料；rejected: 元資料",
       "english": "metadata"
     },
     {
@@ -1318,6 +1319,13 @@
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "metaprogramming/meta-programming"
+    },
+    {
+      "from": "元資料",
+      "to": [],
+      "type": "cross_strait",
+      "context": "@domain 資料。`元資料` 為機械式 Sinification (從 `元數據` 字面替換而來)，無 NAER / MoE 立足點。preferred: metadata；可接受替代: 詮釋資料 / 後設資料",
+      "english": "metadata"
     },
     {
       "from": "元音",
@@ -3489,7 +3497,8 @@
       "type": "confusable",
       "context": "限 IT 語境。電影/戲劇場景為正確 tw 用法",
       "english": "scenario",
-      "context_clues": ["應用", "部署", "測試", "系統", "開發", "架構", "軟件", "軟體", "程式", "行程", "核心", "記憶體", "CPU"]
+      "context_clues": ["應用", "部署", "測試", "系統", "開發", "架構", "軟件", "軟體", "程式", "行程", "核心", "記憶體", "CPU"],
+      "editorial_confidence": "low"
     },
     {
       "from": "塑料",
@@ -7416,8 +7425,9 @@
       "from": "消息",
       "to": ["訊息"],
       "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "message"
+      "context": "@domain IT。`好消息`/`壞消息`/`消息來源` 為合法 zh-TW 用法",
+      "english": "message",
+      "positional_clues": ["not_after:好", "not_after:壞", "not_before:來源"]
     },
     {
       "from": "消息環",
@@ -9097,7 +9107,8 @@
       "type": "cross_strait",
       "context": "@domain 程式設計",
       "english": "algorithm",
-      "exceptions": ["演算法"]
+      "exceptions": ["演算法"],
+      "editorial_confidence": "low"
     },
     {
       "from": "箭頭操作符",

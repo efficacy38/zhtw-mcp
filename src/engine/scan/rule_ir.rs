@@ -146,6 +146,9 @@ pub struct CompiledSpellingDb {
     pub spelling_english: Vec<Option<Arc<str>>>,
     /// Pre-interned context clues per rule.  Arc bump during inflation.
     pub spelling_context_clues: Vec<Option<Arc<[String]>>>,
+    /// Per-rule editorial confidence (35.2).  Plain copy at inflation
+    /// time — `EditorialConfidence` is `Copy`, so no Arc needed.
+    pub spelling_editorial_confidence: Vec<Option<crate::rules::ruleset::EditorialConfidence>>,
     /// Per-rule positive clue IDs into the clue AC pattern list.
     #[allow(dead_code)]
     pub rule_pos_clue_ids: Vec<Option<Vec<u16>>>,
@@ -179,6 +182,7 @@ impl CompiledSpellingDb {
             spelling_contexts: Vec::new(),
             spelling_english: Vec::new(),
             spelling_context_clues: Vec::new(),
+            spelling_editorial_confidence: Vec::new(),
             rule_pos_clue_ids: Vec::new(),
             rule_neg_clue_ids: Vec::new(),
             rule_positional_clues: Vec::new(),
@@ -610,6 +614,7 @@ fn inflate_spelling_issues_inner(
                 issue.found = s.to_string();
             }
             issue.suggestions = db.spelling_suggestions[idx].clone();
+            issue.editorial_confidence = db.spelling_editorial_confidence[idx];
             if !offset_only {
                 issue.context.clone_from(&db.spelling_contexts[idx]);
                 issue.english.clone_from(&db.spelling_english[idx]);
@@ -747,6 +752,12 @@ pub fn compile_spelling_rules_filtered(
         .iter()
         .map(|r| r.context_clues.as_ref().map(|v| Arc::from(v.as_slice())))
         .collect();
+
+    let spelling_editorial_confidence: Vec<Option<crate::rules::ruleset::EditorialConfidence>> =
+        spelling_rules
+            .iter()
+            .map(|r| r.editorial_confidence)
+            .collect();
 
     // Build clue AC: intern all unique clue strings, map per-rule clue
     // lists to indices, build a bytewise AC for windowed lookups.
@@ -1036,6 +1047,7 @@ pub fn compile_spelling_rules_filtered(
         spelling_contexts,
         spelling_english,
         spelling_context_clues,
+        spelling_editorial_confidence,
         rule_pos_clue_ids,
         rule_neg_clue_ids,
         rule_positional_clues,

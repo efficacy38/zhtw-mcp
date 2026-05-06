@@ -480,6 +480,7 @@ fn bench_cpu_attribution_100kb(c: &mut Criterion) {
         heading_severity_boost: false,
         political_stance: PoliticalStance::RocCentric,
         offset_only: false,
+        exempt_blockquotes: false,
     };
 
     // Spelling-only config.

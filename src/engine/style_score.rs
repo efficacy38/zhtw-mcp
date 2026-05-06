@@ -153,10 +153,12 @@ mod tests {
             english: None,
             context_clues: None,
             anchor_match: None,
+            glossary_banned: false,
             tier2_outcome: Default::default(),
             llm_judged: false,
             spelling_rule_idx: None,
             table_cell: None,
+            editorial_confidence: None,
         }
     }
 

@@ -26,6 +26,38 @@ pub struct ProjectConfig {
     pub suppressions: Option<String>,
     pub packs: Option<Vec<String>>,
     pub translation_memory: Option<String>,
+    pub markdown: Option<MarkdownConfig>,
+    pub glossary: Option<GlossaryConfig>,
+}
+
+/// Markdown-specific scanning options (35.7).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct MarkdownConfig {
+    /// When true, treat pulldown-cmark `Tag::BlockQuote` ranges as
+    /// exclusion zones.  Useful for documents that quote mainland-Chinese
+    /// sources for illustrative purposes.  Off by default.
+    pub exempt_blockquotes: Option<bool>,
+}
+
+/// Project glossary section (35.9).  Layered above the embedded ruleset
+/// and pack store but below banned-term enforcement and translation
+/// memory.  Precedence: glossary `banned` > TM > glossary `preferred` >
+/// domain pack > embedded ruleset.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct GlossaryConfig {
+    /// Terms that must always be flagged regardless of context clues.
+    /// E.g. ["線程", "內存"] forces those calques to fire even in
+    /// otherwise ambiguous prose.
+    pub banned: Option<Vec<String>>,
+    /// Project-preferred zh-TW forms.  Used by the consistency report
+    /// (35.1) to choose the canonical suggestion when both TW-preferred
+    /// and CN-preferred variants appear in the same document.
+    pub preferred: Option<Vec<String>>,
+    /// Names that should never be flagged (added to the suppression
+    /// list).  E.g. ["TSMC", "MediaTek"].
+    pub proper_nouns: Option<Vec<String>>,
 }
 
 impl ProjectConfig {

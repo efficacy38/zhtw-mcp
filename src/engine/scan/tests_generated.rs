@@ -16,6 +16,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "數據庫".into(),
@@ -30,6 +31,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
         let scanner = Scanner::new(rules, vec![]);
@@ -63,6 +65,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "軟件".into(),
@@ -77,6 +80,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
         let scanner = Scanner::new(rules, vec![]);
@@ -104,6 +108,7 @@
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }]
     }
 
@@ -149,6 +154,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "\u{201d}".into(),
@@ -163,6 +169,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ]
     }
@@ -243,6 +250,7 @@
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         let issues = scanner.scan("ABA").issues;
@@ -670,6 +678,7 @@
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         let issues = scanner.scan("軟件,好用").issues;
@@ -779,6 +788,7 @@
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         let issues = scanner.scan("軟件, 好用.").issues;
@@ -1252,6 +1262,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "\u{201d}".into(),
@@ -1266,6 +1277,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
         let scanner = Scanner::new(rules, vec![]);
@@ -1292,6 +1304,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "\u{201d}".into(),
@@ -1306,6 +1319,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
         let scanner = Scanner::new(rules, vec![]);
@@ -1336,6 +1350,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "\u{201d}".into(),
@@ -1350,6 +1365,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
         let scanner = Scanner::new(rules, vec![]);
@@ -1611,6 +1627,7 @@
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }
     }
 
@@ -1627,6 +1644,7 @@
             exceptions: Some(exceptions.into_iter().map(String::from).collect()),
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }
     }
 
@@ -1779,6 +1797,7 @@
                 exceptions: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             variant_rule("裏", "裡"),
         ];
@@ -2284,6 +2303,7 @@
             negative_context_clues: Some(vec!["的".into(), "等".into()]),
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules.clone(), vec![]);
 
@@ -2319,6 +2339,7 @@
             negative_context_clues: Some(vec!["獨家".into()]),
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         let issues = scanner.scan("這個軟件很好用").issues;

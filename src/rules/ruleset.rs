@@ -82,6 +82,11 @@ pub struct ProfileConfig {
     /// When true, skip line/col computation (byte offsets only).
     /// Used by MCP tool which consumes offsets directly.
     pub offset_only: bool,
+    /// When true (Markdown content only), exclude pulldown-cmark
+    /// `Tag::BlockQuote` ranges from scanning.  Off by default — adopted
+    /// blockquote prose is real content.  Opt-in via `--exempt-blockquotes`
+    /// or `[markdown] exempt_blockquotes = true` (35.7).
+    pub exempt_blockquotes: bool,
 }
 
 impl ProfileConfig {
@@ -99,6 +104,14 @@ impl ProfileConfig {
         self.dunhao_detection = false;
         self.grammar_checks = false;
         self.range_en_dash = true;
+        self
+    }
+
+    /// Mark blockquote prose as excluded from scanning.  Useful when a
+    /// document contains long mainland-Chinese citations the author
+    /// cannot rewrite.
+    pub fn with_exempt_blockquotes(mut self, on: bool) -> Self {
+        self.exempt_blockquotes = on;
         self
     }
 }
@@ -148,6 +161,7 @@ impl Profile {
                 heading_severity_boost: true,
                 political_stance: PoliticalStance::RocCentric,
                 offset_only: false,
+                exempt_blockquotes: false,
             },
             Profile::Strict => ProfileConfig {
                 spelling: true,
@@ -171,6 +185,7 @@ impl Profile {
                 heading_severity_boost: true,
                 political_stance: PoliticalStance::RocCentric,
                 offset_only: false,
+                exempt_blockquotes: false,
             },
         }
     }
@@ -444,6 +459,34 @@ pub struct SpellingRule {
     /// Optional tags for categorization and filtering in rule packs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    /// Per-rule editorial confidence (35.2).  Distinguishes binary
+    /// corrections from style-preference suggestions.  When set to
+    /// `Low`, the explain pipeline marks issues from this rule as
+    /// `auto_fix_safe = false` AND `needs_review = true` — these are
+    /// terms whose Mainland/Taiwan distinction is genuine but where
+    /// the calque form is also valid zh-TW vocabulary in some senses
+    /// (e.g. `優化`, `算法`, `場景`).  Defaults to `None` (heuristic
+    /// derivation in `derive_explain_meta`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editorial_confidence: Option<EditorialConfidence>,
+}
+
+/// Editorial confidence tier surfaced in explain output (35.2).
+///
+/// Per-issue field that distinguishes binary corrections (`線程` →
+/// `執行緒`, high) from editorial-judgment terms (`優化` is valid
+/// zh-TW; `最佳化` is preferred in formal writing — low).  Distinct
+/// from `summary_metrics.confidence_distribution`, which tracks
+/// resolution-tier confidence across the document.
+///
+/// Invariant enforced downstream: `Low` ⇒ `auto_fix_safe = false`
+/// AND `needs_review = true`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EditorialConfidence {
+    High,
+    Medium,
+    Low,
 }
 
 impl SpellingRule {
@@ -468,6 +511,7 @@ impl SpellingRule {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }
     }
 }
@@ -532,6 +576,11 @@ pub struct Issue {
     /// `None`: calibration not attempted or API failure (no signal).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_match: Option<bool>,
+    /// Internal flag for project-glossary banned-term precedence.
+    /// When true, TM must not downgrade the issue, but the marker
+    /// stays out of user-facing `context` metadata.
+    #[serde(skip)]
+    pub glossary_banned: bool,
     /// Tier 2 disambiguation outcome.  Set by `disambiguate_batch` to
     /// indicate whether the issue was resolved locally, suppressed, or
     /// left in the gray zone for Tier 3.  Internal — not serialized.
@@ -554,6 +603,11 @@ pub struct Issue {
     /// integrations and SARIF region output.  `None` when not in a table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table_cell: Option<TableCell>,
+    /// Per-issue editorial confidence (35.2).  Copied from the source
+    /// `SpellingRule` during inflation; surfaces in MCP explain output
+    /// via `derive_explain_meta`.  `None` means heuristic derivation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editorial_confidence: Option<EditorialConfidence>,
 }
 
 /// Markdown table cell coordinates: `(row, column)` are 0-based, with row 0
@@ -588,10 +642,12 @@ impl Issue {
             english: None,
             context_clues: None,
             anchor_match: None,
+            glossary_banned: false,
             tier2_outcome: Tier2Outcome::NotEligible,
             llm_judged: false,
             spelling_rule_idx: None,
             table_cell: None,
+            editorial_confidence: None,
         }
     }
 
@@ -623,10 +679,12 @@ impl Issue {
             english: None,
             context_clues: None,
             anchor_match: None,
+            glossary_banned: false,
             tier2_outcome: Tier2Outcome::NotEligible,
             llm_judged: false,
             spelling_rule_idx: Some(rule_idx),
             table_cell: None,
+            editorial_confidence: None,
         }
     }
 

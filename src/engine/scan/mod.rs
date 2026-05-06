@@ -33,8 +33,7 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use super::excluded::{build_excluded_ranges, merge_ranges_pub, ByteRange};
 use super::lineindex::{ColumnEncoding, LineIndex};
 use super::markdown::{
-    build_markdown_excluded_ranges, build_markdown_excluded_ranges_no_code,
-    build_yaml_excluded_ranges,
+    build_markdown_excluded_ranges_with_options, build_yaml_excluded_ranges, MdScanOptions,
 };
 use super::normalize::{map_offset, normalize_nfc, Normalized};
 use super::segment::{BoundaryBitmap, Segmenter};
@@ -710,11 +709,28 @@ fn punct_issue(offset: usize, found: &str, suggestion: &str, context: &str) -> I
 /// structural exclusions appropriate to the content type and inline
 /// suppression markers.  Shared between CLI and MCP pipelines.
 pub fn build_exclusions_for_content_type(text: &str, content_type: ContentType) -> Vec<ByteRange> {
+    build_exclusions_for_content_type_with_options(text, content_type, MdScanOptions::default())
+}
+
+/// Build exclusion ranges with explicit Markdown options.  Honors the
+/// caller-supplied [MdScanOptions] (e.g. 35.7 blockquote exemption);
+/// falls back to defaults for non-Markdown content types.
+pub fn build_exclusions_for_content_type_with_options(
+    text: &str,
+    content_type: ContentType,
+    md_opts: MdScanOptions,
+) -> Vec<ByteRange> {
     let mut excluded = build_excluded_ranges(text);
     match content_type {
-        ContentType::Markdown => excluded.extend(build_markdown_excluded_ranges(text)),
+        ContentType::Markdown => {
+            excluded.extend(build_markdown_excluded_ranges_with_options(text, md_opts));
+        }
         ContentType::MarkdownScanCode => {
-            excluded.extend(build_markdown_excluded_ranges_no_code(text))
+            // MarkdownScanCode forces scan_code_blocks=true regardless of the
+            // caller-supplied flag, but still honors exempt_blockquotes so the
+            // 35.7 opt-in works for source-code content too.
+            let opts = MdScanOptions::new(true, md_opts.exempt_blockquotes);
+            excluded.extend(build_markdown_excluded_ranges_with_options(text, opts));
         }
         ContentType::Yaml => excluded.extend(build_yaml_excluded_ranges(text)),
         ContentType::Plain => {}
@@ -986,6 +1002,15 @@ impl Scanner {
     ///
     /// content_type controls which structural exclusion pass is applied
     /// during the NFC-rebuild slow path (Markdown, YAML, or plain text).
+    ///
+    /// CALLER CONTRACT: config-driven Markdown options like
+    /// [`ProfileConfig::exempt_blockquotes`] (35.7) only take effect on
+    /// the NFC-rebuild path, where exclusions are recomputed from the
+    /// supplied [`ProfileConfig`].  On the fast path the caller-supplied
+    /// `excluded` slice is used verbatim — if the caller wants
+    /// blockquotes excluded, they must build the slice with
+    /// [`build_exclusions_for_content_type_with_options`] using a
+    /// matching [`MdScanOptions`].
     pub fn scan_with_prebuilt_excluded(
         &self,
         text: &str,
@@ -1044,10 +1069,18 @@ impl Scanner {
         let scan_text = &norm.text;
         let nfc_changed = !norm.offset_map.is_empty();
 
+        let md_opts = MdScanOptions::new(
+            matches!(content_type, ContentType::MarkdownScanCode),
+            cfg.exempt_blockquotes,
+        );
         let mut output = match prebuilt_excluded {
             Some(excl) if !nfc_changed => self.scan_with_config(scan_text, excl, cfg),
             _ => {
-                let excl = build_exclusions_for_content_type(scan_text, content_type);
+                let excl = build_exclusions_for_content_type_with_options(
+                    scan_text,
+                    content_type,
+                    md_opts,
+                );
                 self.scan_with_config(scan_text, &excl, cfg)
             }
         };
@@ -1890,6 +1923,7 @@ mod tests {
             exceptions: Some(vec!["下著".into()]),
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         assert!(scanner.spelling_db.ac_charwise.is_some());
@@ -1917,6 +1951,7 @@ mod tests {
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         assert!(scanner.spelling_db.ac_charwise.is_some());
@@ -1949,6 +1984,7 @@ mod tests {
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         assert!(scanner.spelling_db.ac_charwise.is_some());
@@ -2057,6 +2093,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["before:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2088,6 +2125,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["after:請".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2118,6 +2156,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["adjacent:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2160,6 +2199,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["not_before:的".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2190,6 +2230,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["not_after:清單".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2220,6 +2261,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["before:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2261,6 +2303,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["after:請".into(), "before:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2301,6 +2344,7 @@ mod tests {
             exceptions: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
         let issues = scanner.scan("這個軟件很好用").issues;
@@ -2323,6 +2367,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["before:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2353,6 +2398,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["after:請".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2379,6 +2425,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["before:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 
@@ -2420,6 +2467,7 @@ mod tests {
             exceptions: None,
             positional_clues: Some(vec!["adjacent:函式".into()]),
             tags: None,
+            editorial_confidence: None,
         }];
         let scanner = Scanner::new(rules, vec![]);
 

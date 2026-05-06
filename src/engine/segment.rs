@@ -1094,6 +1094,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         // Dict should contain "軟件", "軟體", and all stop words.
@@ -1230,6 +1231,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         // Stop word "的" must have freq=10.
@@ -1337,6 +1339,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         // General vocab words should be present.
@@ -1366,6 +1369,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         // "提供" and "處理" are general vocab; "數據" and "分析"/"處理" are rule terms.
@@ -1390,6 +1394,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         let tokens = seg.segment("目前提供的重要功能");
@@ -1421,6 +1426,7 @@ mod tests {
             negative_context_clues: None,
             positional_clues: None,
             tags: None,
+            editorial_confidence: None,
         }];
         let seg = Segmenter::from_rules(&rules);
         // Rule term "設計" inserted first with freq=1; general vocab uses

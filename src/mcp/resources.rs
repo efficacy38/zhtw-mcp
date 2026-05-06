@@ -182,6 +182,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
             SpellingRule {
                 from: "軟件".into(),
@@ -196,6 +197,7 @@ mod tests {
                 negative_context_clues: None,
                 positional_clues: None,
                 tags: None,
+                editorial_confidence: None,
             },
         ];
 
