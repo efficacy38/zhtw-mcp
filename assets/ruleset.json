@@ -3769,6 +3769,13 @@
       "context": "humanize.C7: sycophantic chatbot opener; delete"
     },
     {
+      "from": "如需協助請聯繫",
+      "to": ["如需協助請聯絡"],
+      "type": "cross_strait",
+      "context": "@domain IT。客服 CTA；避免把日常用法「聯繫」一概改寫",
+      "english": "if you need help, please contact"
+    },
+    {
       "from": "委託",
       "to": ["委派"],
       "type": "cross_strait",
@@ -9686,11 +9693,25 @@
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
     },
     {
-      "from": "聯繫",
-      "to": ["聯絡"],
+      "from": "聯繫客服",
+      "to": ["聯絡客服"],
       "type": "cross_strait",
-      "context": "@domain IT",
-      "english": "contact"
+      "context": "@domain IT。客服 CTA；避免把日常用法「聯繫」一概改寫",
+      "english": "contact support"
+    },
+    {
+      "from": "聯繫我們",
+      "to": ["聯絡我們"],
+      "type": "cross_strait",
+      "context": "@domain IT。客服 CTA / contact us copy；避免把日常用法「聯繫」一概改寫",
+      "english": "contact us"
+    },
+    {
+      "from": "聯繫方式",
+      "to": ["聯絡方式"],
+      "type": "cross_strait",
+      "context": "@domain IT。聯絡資訊欄位標籤；避免把日常用法「聯繫」一概改寫",
+      "english": "contact method"
     },
     {
       "from": "聯繫歷史",
@@ -9698,6 +9719,27 @@
       "type": "cross_strait",
       "context": "@domain 通訊",
       "english": "call history"
+    },
+    {
+      "from": "聯繫管道",
+      "to": ["聯絡管道"],
+      "type": "cross_strait",
+      "context": "@domain IT。聯絡資訊欄位標籤；避免把日常用法「聯繫」一概改寫",
+      "english": "contact channel"
+    },
+    {
+      "from": "聯繫資訊",
+      "to": ["聯絡資訊"],
+      "type": "cross_strait",
+      "context": "@domain IT。聯絡資訊欄位標籤；避免把日常用法「聯繫」一概改寫",
+      "english": "contact information"
+    },
+    {
+      "from": "聯繫電話",
+      "to": ["聯絡電話"],
+      "type": "cross_strait",
+      "context": "@domain IT。聯絡資訊欄位標籤；避免把日常用法「聯繫」一概改寫",
+      "english": "contact phone"
     },
     {
       "from": "聲卡",

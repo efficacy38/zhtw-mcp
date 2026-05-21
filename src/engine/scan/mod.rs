@@ -2076,6 +2076,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn contact_cta_rules_do_not_force_low_editorial_confidence() {
+        let ruleset = crate::rules::loader::load_embedded_ruleset().unwrap();
+        let scanner = Scanner::new(ruleset.spelling_rules, ruleset.case_rules);
+
+        let issues = scanner.scan("如需協助請聯繫客服").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "expected CTA phrase to match once: {issues:?}"
+        );
+        assert_eq!(issues[0].found, "如需協助請聯繫");
+        assert_eq!(issues[0].editorial_confidence, None);
+
+        let issues = scanner.scan("歡迎聯繫我們").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "expected contact-us phrase to match once: {issues:?}"
+        );
+        assert_eq!(issues[0].found, "聯繫我們");
+        assert_eq!(issues[0].editorial_confidence, None);
+    }
+
     // --- positional_clues tests ---
 
     #[test]
@@ -2479,6 +2503,79 @@ mod tests {
         assert!(
             issues.is_empty(),
             "adjacent: must not match term inside excluded region: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn lian_xi_contact_copy_uses_phrase_rules_without_general_prose_fp() {
+        let rules = vec![
+            SpellingRule::new("聯繫我們", vec!["聯絡我們".into()], RuleType::CrossStrait),
+            SpellingRule::new("聯繫方式", vec!["聯絡方式".into()], RuleType::CrossStrait),
+            SpellingRule::new("聯繫資訊", vec!["聯絡資訊".into()], RuleType::CrossStrait),
+            SpellingRule::new("聯繫管道", vec!["聯絡管道".into()], RuleType::CrossStrait),
+            SpellingRule::new("聯繫電話", vec!["聯絡電話".into()], RuleType::CrossStrait),
+            SpellingRule::new("聯繫客服", vec!["聯絡客服".into()], RuleType::CrossStrait),
+            SpellingRule::new(
+                "如需協助請聯繫",
+                vec!["如需協助請聯絡".into()],
+                RuleType::CrossStrait,
+            ),
+        ];
+        let scanner = Scanner::new(rules, vec![]);
+
+        let issues = scanner.scan("歡迎聯繫我們").issues;
+        assert_eq!(issues.len(), 1, "should flag contact CTA: {issues:?}");
+
+        let issues = scanner.scan("請查看聯繫方式").issues;
+        assert_eq!(issues.len(), 1, "should flag contact label: {issues:?}");
+
+        let issues = scanner.scan("最新聯繫資訊如下").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "should flag contact info label: {issues:?}"
+        );
+
+        let issues = scanner.scan("若需協助可參考聯繫管道").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "should flag contact channel label: {issues:?}"
+        );
+
+        let issues = scanner.scan("聯繫電話：02-1234-5678").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "should flag contact phone label: {issues:?}"
+        );
+
+        let issues = scanner.scan("請聯繫客服取得協助").issues;
+        assert_eq!(issues.len(), 1, "should flag support CTA: {issues:?}");
+
+        let issues = scanner.scan("如需協助請聯繫").issues;
+        assert_eq!(
+            issues.len(),
+            1,
+            "should flag imperative support CTA: {issues:?}"
+        );
+
+        let issues = scanner.scan("我們與學界保持密切聯繫").issues;
+        assert!(
+            issues.is_empty(),
+            "should not flag ordinary prose: {issues:?}"
+        );
+
+        let issues = scanner.scan("請加強國際聯繫").issues;
+        assert!(
+            issues.is_empty(),
+            "should not flag ordinary prose: {issues:?}"
+        );
+
+        let issues = scanner.scan("我們透過電話聯繫對方").issues;
+        assert!(
+            issues.is_empty(),
+            "should not flag ordinary prose: {issues:?}"
         );
     }
 
