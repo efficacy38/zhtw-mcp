@@ -3108,8 +3108,8 @@ fn scan_zy1a_superlative_yi_zhi(text: &str, excluded: &[ByteRange], issues: &mut
                         Severity::Info,
                     )
                     .with_context(
-                        "翻譯腔 ZY1a: 之一最高級套語（最…之一 / 極為…之一），\
-                         建議改用「極為…」「…得很」或重新組句",
+                        "翻譯腔 ZY1a: 之一最高級套語，省去「之一」\
+                         改用「極為…」/「非常…」/「數一數二的…」",
                     ),
                 );
             }
@@ -3444,18 +3444,24 @@ fn scan_zy4a_false_friends(text: &str, excluded: &[ByteRange], issues: &mut Vec<
         if !(companion || parenthetical_gloss) {
             continue;
         }
+        // Advisory only (PAIRS is "Auto-fix safe: false"): the suggestions are
+        // context-dependent alternatives, several slash-separated (簡直/真就是),
+        // NOT drop-in replacements. The fixer applies any single non-orthographic
+        // suggestion verbatim (fixer.rs), so emitting one here would inject the
+        // literal alternatives. Keep suggestions empty; surface the rephrasing in
+        // context so lint output still shows it.
         issues.push(
             Issue::new(
                 h.abs_start,
                 h.abs_end - h.abs_start,
                 &text[h.abs_start..h.abs_end],
-                vec![h.suggestion.to_string()],
+                vec![],
                 IssueType::Translationese,
                 Severity::Info,
             )
             .with_context(format!(
-                "翻譯腔 ZY4a: 假性對應詞（{}），文脈含其他翻譯特徵，建議改寫",
-                h.label
+                "翻譯腔 ZY4a: 假性對應詞（{}），文脈含其他翻譯特徵，建議改寫為「{}」",
+                h.label, h.suggestion
             )),
         );
     }
@@ -3698,18 +3704,27 @@ fn scan_zy2b_sentence_bounded_connectives(
                 let close_abs_end = sent.byte_start + close_rel + closer.len();
                 let abs_open = sent.byte_start + open_pos;
                 if !is_excluded(abs_open, close_abs_end, excluded) {
-                    let suggestion = format!("刪除「{drop_form}」，僅保留另一端");
+                    // The suggestion must be a valid REPLACEMENT (the fixer applies suggestions[0]),
+                    // not a human-readable instruction. drop_form is always the opener or the closer
+                    // of the matched span, so the fix is the span with that one end removed
+                    // ("keep the other end"). The explanation lives in the context, not the suggestion.
+                    let matched = &text[abs_open..close_abs_end];
+                    let fixed = if drop_form == opener {
+                        matched.strip_prefix(drop_form).unwrap_or(matched)
+                    } else {
+                        matched.strip_suffix(drop_form).unwrap_or(matched)
+                    };
                     issues.push(
                         Issue::new(
                             abs_open,
                             close_abs_end - abs_open,
-                            &text[abs_open..close_abs_end],
-                            vec![suggestion],
+                            matched,
+                            vec![fixed.to_string()],
                             IssueType::Translationese,
                             Severity::Info,
                         )
                         .with_context(format!(
-                            "翻譯腔 ZY2b: 句內連接詞贅餘（{label}），中文常省略其中一端"
+                            "翻譯腔 ZY2b: 句內連接詞贅餘（{label}），建議刪除「{drop_form}」僅保留另一端"
                         )),
                     );
                 }

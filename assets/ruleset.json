@@ -2008,7 +2008,7 @@
       "type": "cross_strait",
       "context": "@domain 線性代數",
       "english": "elementary matrix",
-      "context_clues": ["矩陣", "行列式", "列運算", "行變換", "消去", "高斯"]
+      "context_clues": ["行列式", "列運算", "行變換", "消去", "高斯"]
     },
     {
       "from": "利比裡亞",
@@ -3104,6 +3104,15 @@
       "english": "Enter key/Return key"
     },
     {
+      "from": "回頭再議",
+      "to": ["後續再議", "改日再談"],
+      "type": "translationese",
+      "context": "cuimao.Business: PRC meeting-minute calque of \"circle back\"; zh-TW prefers 後續再議",
+      "english": "circle back",
+      "context_clues": ["會議", "討論", "提案", "議題", "回饋", "下次"],
+      "tags": ["translation_aid", "cuimao_derived", "business_terms"]
+    },
+    {
       "from": "因此我們可以看到",
       "to": ["因此"],
       "type": "ai_filler",
@@ -3740,6 +3749,15 @@
       "type": "cross_strait",
       "context": "@domain 作業系統",
       "english": "socket"
+    },
+    {
+      "from": "套殼",
+      "to": ["API 包裝", "應用程式包裝", "wrapper"],
+      "type": "translationese",
+      "context": "cuimao.AI: PRC tech-blog slang for thin LLM API wrapper; zh-TW prefers descriptive 介面包裝 or English wrapper",
+      "english": "AI Wrapper",
+      "context_clues": ["AI", "GPT", "API", "模型", "LLM", "Claude"],
+      "tags": ["translation_aid", "cuimao_derived", "ai_terms"]
     },
     {
       "from": "奠定基礎",
@@ -5166,6 +5184,15 @@
       "type": "cross_strait",
       "context": "@domain 日常",
       "english": "slow motion"
+    },
+    {
+      "from": "憑感覺編程",
+      "to": ["Vibe Coding"],
+      "type": "translationese",
+      "context": "cuimao.AI: PRC SC calque of Karpathy's coinage; zh-TW writing keeps the English term",
+      "english": "Vibe Coding (Karpathy)",
+      "context_clues": ["Cursor", "Claude", "AI", "IDE"],
+      "tags": ["translation_aid", "cuimao_derived", "ai_terms"]
     },
     {
       "from": "應用程序",
@@ -7656,6 +7683,16 @@
       "english": "Wei (river name, char variant)"
     },
     {
+      "from": "潛空間",
+      "to": ["潛在空間", "latent space"],
+      "type": "translationese",
+      "context": "cuimao.AI: 潛空間 is PRC ML literature compression; zh-TW academic writing prefers 潛在空間 or English",
+      "english": "latent space",
+      "context_clues": ["向量", "模型", "VAE", "嵌入", "編碼"],
+      "tags": ["translation_aid", "cuimao_derived", "ai_terms"],
+      "editorial_confidence": "low"
+    },
+    {
       "from": "潨",
       "to": ["潀"],
       "type": "variant",
@@ -8426,6 +8463,14 @@
       "context_clues": ["矩陣", "線性", "列運算", "行變換", "秩"]
     },
     {
+      "from": "真就是",
+      "to": ["根本", "簡直"],
+      "type": "translationese",
+      "context": "cuimao.FalseFriends: PRC modern slang intensifier (literally); zh-TW prefers 簡直",
+      "english": "literally (colloquial)",
+      "tags": ["translation_aid", "cuimao_derived", "false_friends"]
+    },
+    {
       "from": "真陰性",
       "to": ["正確負例"],
       "type": "cross_strait",
@@ -8474,6 +8519,15 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "SMS"
+    },
+    {
+      "from": "短期見效的事",
+      "to": ["唾手可得的成果", "low-hanging fruit"],
+      "type": "translationese",
+      "context": "cuimao.Business: PRC consulting-deck phrasing; zh-TW prefers idiom 唾手可得 or English",
+      "english": "low-hanging fruit",
+      "context_clues": ["策略", "目標", "優先", "業務", "任務", "團隊"],
+      "tags": ["translation_aid", "cuimao_derived", "business_terms"]
     },
     {
       "from": "研究生院",
@@ -9173,7 +9227,7 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "system disk",
-      "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
+      "context_clues": ["程式", "軟體", "電腦", "網路"]
     },
     {
       "from": "系統資料",
@@ -9785,6 +9839,16 @@
       "english": "pancreas"
     },
     {
+      "from": "能動性",
+      "to": ["行動主體性", "施動性", "agency"],
+      "type": "translationese",
+      "context": "cuimao.Philosophy: PRC translation of philosophical Agency; zh-TW philosophy prefers 行動主體性 or 施動性",
+      "english": "agency",
+      "context_clues": ["哲學", "主體", "行動", "意志", "理性", "倫理"],
+      "tags": ["translation_aid", "cuimao_derived", "philosophy_terms"],
+      "editorial_confidence": "low"
+    },
+    {
       "from": "脣",
       "to": ["唇"],
       "type": "variant",
@@ -10070,6 +10134,17 @@
       "type": "cross_strait",
       "context": "@geo city (城市)",
       "english": "Vientiane"
+    },
+    {
+      "from": "落地",
+      "to": ["實際應用", "導入實務"],
+      "type": "translationese",
+      "context": "cuimao.AI: PRC tech-jargon sense (deploy / put into practice) overloads the literal sense (land/fall). Flag only in AI/business context; suppress when surrounding text is about flight or physical landing.",
+      "english": "ground / put into practice",
+      "context_clues": ["AI", "技術", "解決方案", "場景", "業務", "部署", "產品", "應用"],
+      "negative_context_clues": ["飛機", "降落", "墜落", "跑道", "機場", "戰機", "客機", "物品", "掉落", "摔"],
+      "tags": ["translation_aid", "cuimao_derived", "ai_terms"],
+      "editorial_confidence": "low"
     },
     {
       "from": "蒙特利爾",
@@ -10750,6 +10825,16 @@
       "english": "phrase"
     },
     {
+      "from": "認識論",
+      "to": ["知識論", "epistemology"],
+      "type": "translationese",
+      "context": "cuimao.Philosophy: tw 哲學系所通用 知識論；cn 學界用 認識論。在哲學脈絡下建議改用 知識論 或英文",
+      "english": "epistemology",
+      "context_clues": ["哲學", "Kant", "康德", "Hume", "休謨", "經驗論", "理性論", "知識"],
+      "tags": ["translation_aid", "cuimao_derived", "philosophy_terms"],
+      "editorial_confidence": "low"
+    },
+    {
       "from": "語句",
       "to": ["敘述", "陳述式", "述句"],
       "type": "cross_strait",
@@ -10779,6 +10864,14 @@
       "context": "@domain IT",
       "english": "language pack",
       "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
+    },
+    {
+      "from": "說白了",
+      "to": ["說到底", "歸根究底"],
+      "type": "translationese",
+      "context": "cuimao.FalseFriends: PRC colloquial discourse marker (basically); zh-TW formal/informal both use 說到底 or 歸根究底",
+      "english": "basically (colloquial)",
+      "tags": ["translation_aid", "cuimao_derived", "false_friends"]
     },
     {
       "from": "課時工資",
@@ -11075,7 +11168,7 @@
       "type": "cross_strait",
       "context": "@domain 電商",
       "english": "shopping basket",
-      "context_clues": ["購物", "商品", "結帳", "訂單"]
+      "context_clues": ["商品", "結帳", "訂單"]
     },
     {
       "from": "贊比亞",
@@ -11530,7 +11623,7 @@
       "type": "cross_strait",
       "context": "@domain IT",
       "english": "procedural",
-      "context_clues": ["程式", "軟體", "系統", "電腦", "網路"]
+      "context_clues": ["軟體", "系統", "電腦", "網路"]
     },
     {
       "from": "過程式編程",
@@ -12547,6 +12640,15 @@
       "type": "cross_strait",
       "context": "@domain 通訊",
       "english": "frequency-division multiplexing (FDM)"
+    },
+    {
+      "from": "顛覆性變革",
+      "to": ["劃時代的變革", "顛覆性創新", "game changer"],
+      "type": "translationese",
+      "context": "cuimao.Business: PRC management-discourse compound; zh-TW prefers idiomatic 扭轉局勢 or English",
+      "english": "game changer",
+      "context_clues": ["市場", "產業", "競爭", "策略", "技術", "創新"],
+      "tags": ["translation_aid", "cuimao_derived", "business_terms"]
     },
     {
       "from": "類",
