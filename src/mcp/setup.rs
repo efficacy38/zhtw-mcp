@@ -1,7 +1,8 @@
 // Agentic Editor integration: generate host-specific configuration content.
 //
-// Supports three hosts:
+// Supports MCP-capable host integrations:
 //   - Claude Code: CLAUDE.md section for zh-TW grounding
+//   - Codex:       MCP registration command + AGENTS.md guidance
 //   - OpenCode:    Skill definition YAML
 //   - Copilot:     copilot-instructions.md + VS Code MCP settings
 
@@ -122,6 +123,7 @@ Use `zhtw` with `fix_mode: "lexical_safe"` and `max_errors: 0` as a quality gate
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Host {
     ClaudeCode,
+    Codex,
     OpenCode,
     Copilot,
     Cursor,
@@ -135,6 +137,7 @@ impl Host {
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
             "claude_code" | "claude-code" => Some(Self::ClaudeCode),
+            "codex" | "codex-cli" => Some(Self::Codex),
             "opencode" | "open-code" => Some(Self::OpenCode),
             "copilot" | "github-copilot" => Some(Self::Copilot),
             "cursor" => Some(Self::Cursor),
@@ -149,6 +152,7 @@ impl Host {
     pub fn name(self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude_code",
+            Self::Codex => "codex",
             Self::OpenCode => "opencode",
             Self::Copilot => "copilot",
             Self::Cursor => "cursor",
@@ -163,6 +167,7 @@ impl Host {
 /// All supported hosts.
 pub const ALL_HOSTS: &[Host] = &[
     Host::ClaudeCode,
+    Host::Codex,
     Host::OpenCode,
     Host::Copilot,
     Host::Cursor,
@@ -171,6 +176,34 @@ pub const ALL_HOSTS: &[Host] = &[
     Host::ContinueDev,
     Host::Generic,
 ];
+
+/// Generate Codex CLI integration instructions.
+pub fn codex_instructions() -> String {
+    r#"# Codex integration for zhtw-mcp
+
+Register the MCP server under the short name `zhtw` so tool calls appear as
+`mcp__zhtw.zhtw`:
+
+```bash
+codex mcp add zhtw -- /path/to/zhtw-mcp
+```
+
+Replace `/path/to/zhtw-mcp` with the installed binary path, for example
+`/Users/you/.local/bin/zhtw-mcp`.
+
+Add this guidance to `AGENTS.md`:
+
+```markdown
+When editing Traditional Chinese (Taiwan) text, use the `zhtw` MCP tool to
+lint/fix/gate output against Taiwan MoE conventions. Prefer
+`fix_mode: "lexical_safe"` for deterministic corrections and use
+`content_type: "markdown"` for Markdown files.
+```
+
+After installing or rebuilding zhtw-mcp, restart Codex so it launches the new
+binary. Run `codex mcp get zhtw` to confirm the configured command."#
+        .to_string()
+}
 
 /// Generate Cursor rules file content.
 pub fn cursor_rules() -> String {
@@ -324,6 +357,14 @@ pub fn generate_for_host(host: Host) -> serde_json::Value {
                 "file": ".claude/CLAUDE.md",
                 "instruction": "Append the following section to your project's CLAUDE.md file:",
                 "content": claude_code_section(),
+            })
+        }
+        Host::Codex => {
+            serde_json::json!({
+                "host": "codex",
+                "file": "AGENTS.md",
+                "instruction": "Register the MCP server with Codex CLI and add the following guidance to AGENTS.md:",
+                "content": codex_instructions(),
             })
         }
         Host::OpenCode => {
@@ -502,6 +543,14 @@ mod tests {
     }
 
     #[test]
+    fn codex_instructions_use_short_server_name() {
+        let instructions = codex_instructions();
+        assert!(instructions.contains("codex mcp add zhtw"));
+        assert!(instructions.contains("mcp__zhtw.zhtw"));
+        assert!(instructions.contains("AGENTS.md"));
+    }
+
+    #[test]
     fn opencode_skill_is_valid_yaml_structure() {
         let skill = opencode_skill();
         assert!(skill.contains("name: zhtw-lint"));
@@ -524,6 +573,8 @@ mod tests {
     fn host_from_str_parses_all_variants() {
         assert_eq!(Host::from_name("claude_code"), Some(Host::ClaudeCode));
         assert_eq!(Host::from_name("claude-code"), Some(Host::ClaudeCode));
+        assert_eq!(Host::from_name("codex"), Some(Host::Codex));
+        assert_eq!(Host::from_name("codex-cli"), Some(Host::Codex));
         assert_eq!(Host::from_name("opencode"), Some(Host::OpenCode));
         assert_eq!(Host::from_name("copilot"), Some(Host::Copilot));
         assert_eq!(Host::from_name("github-copilot"), Some(Host::Copilot));

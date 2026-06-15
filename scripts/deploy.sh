@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy script for zhtw-mcp: install, uninstall, status.
 #
-# zhtw-mcp is a long-running MCP server managed by Claude Code.
+# zhtw-mcp is a long-running MCP server managed by MCP-capable agents.
 # The running process must be killed before overwriting the binary.
 
 set -e
@@ -13,10 +13,18 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 BINARY_NAME="zhtw-mcp"
+CODEX_MCP_NAME="${CODEX_MCP_NAME:-zhtw}"
 
 print_info()   { echo -e "${GREEN}[INFO]${NC}   $1"; }
 print_warn()   { echo -e "${YELLOW}[WARN]${NC}   $1"; }
 print_error()  { echo -e "${RED}[ERROR]${NC}  $1"; }
+
+# Escape ERE metacharacters so an absolute path can be safely embedded in a
+# regex (e.g., for pgrep -f). Without this, dots in '~/.local' or other
+# metacharacters in the user's home directory would match unrelated processes.
+escape_ere() {
+    printf '%s' "$1" | sed 's/[].[^$*+?(){}|\\]/\\&/g'
+}
 print_status() { echo -e "${BLUE}[STATUS]${NC} $1"; }
 
 # Resolve project root relative to this script, regardless of CWD.
@@ -28,7 +36,7 @@ get_script_dir() {
         source="$(readlink "$source")"
         [[ $source != /* ]] && source="$dir/$source"
     done
-    echo "$(cd -P "$(dirname "$source")" && pwd)"
+    cd -P "$(dirname "$source")" && pwd
 }
 
 PROJECT_ROOT="$(cd "$(get_script_dir)/.." && pwd)"
@@ -74,29 +82,41 @@ check_claude_cli() {
     return 0
 }
 
+check_codex_cli() {
+    if ! command -v codex &>/dev/null; then
+        print_warn "Codex CLI not found in PATH"
+        echo "  Install Codex CLI before using Codex MCP registration."
+        return 1
+    fi
+    print_info "Codex CLI found: $(which codex)"
+    return 0
+}
+
 # Kill running zhtw-mcp processes by exact installed binary path so we don't
 # accidentally kill unrelated processes (cargo, editors, log tailers) whose
 # argv happens to contain the string "zhtw-mcp".
 kill_running_processes() {
     local binary_path="$1"
+    local pattern
+    pattern="^$(escape_ere "$binary_path")( |\$)"
 
     # pgrep/pkill match against the full command line; anchor to the exact path.
-    if pgrep -f "^${binary_path}" >/dev/null 2>&1; then
+    if pgrep -f "$pattern" >/dev/null 2>&1; then
         print_info "Stopping running ${BINARY_NAME} processes..."
-        pkill -f "^${binary_path}" || true
+        pkill -f "$pattern" || true
         sleep 1
 
         # Force kill if still alive
-        if pgrep -f "^${binary_path}" >/dev/null 2>&1; then
+        if pgrep -f "$pattern" >/dev/null 2>&1; then
             print_warn "Force killing ${BINARY_NAME} processes..."
-            pkill -9 -f "^${binary_path}" || true
+            pkill -9 -f "$pattern" || true
             sleep 0.5
         fi
 
         # Final check — installation should not proceed if kill failed
-        if pgrep -f "^${binary_path}" >/dev/null 2>&1; then
-            print_error "Could not stop ${BINARY_NAME} (PID: $(pgrep -f "^${binary_path}" | tr '\n' ' '))"
-            echo "  Kill manually then re-run: kill \$(pgrep -f '^${binary_path}')"
+        if pgrep -f "$pattern" >/dev/null 2>&1; then
+            print_error "Could not stop ${BINARY_NAME} (PID: $(pgrep -f "$pattern" | tr '\n' ' '))"
+            echo "  Kill manually then re-run: pkill -f '$pattern'"
             exit 1
         fi
 
@@ -104,8 +124,8 @@ kill_running_processes() {
     fi
 }
 
-# 'claude mcp get' has no --scope flag; it searches all scopes.
-# That is sufficient for existence checks — registration is still user-scoped.
+# 'claude mcp get' has no --scope flag; it searches all scopes. Existence here
+# means "registered somewhere" — not necessarily in the user scope we manage.
 mcp_server_exists() {
     if claude mcp get "$BINARY_NAME" >/dev/null 2>&1; then
         return 0
@@ -116,20 +136,101 @@ mcp_server_exists() {
 configure_mcp_server() {
     local binary_path="$1"
 
-    if mcp_server_exists; then
-        print_info "MCP server already configured (user scope)"
-        return 0
-    fi
-
+    # Try to add at user scope unconditionally. 'claude mcp add' fails fast on
+    # duplicate; we then verify existence to decide whether to treat that as
+    # success (already-configured somewhere) or surface the real error.
     print_info "Registering MCP server with Claude Code (user scope)..."
 
     if claude mcp add --scope user "$BINARY_NAME" -- "$binary_path" >/dev/null 2>&1; then
         print_info "MCP server registered successfully"
-    else
-        print_error "Failed to register MCP server"
-        echo "  Run manually: claude mcp add --scope user \"$BINARY_NAME\" -- \"$binary_path\""
-        exit 1
+        return 0
     fi
+
+    if mcp_server_exists; then
+        print_info "MCP server already registered (existing scope preserved)"
+        return 0
+    fi
+
+    print_error "Failed to register Claude MCP server"
+    echo "  Run manually: claude mcp add --scope user \"$BINARY_NAME\" -- \"$binary_path\""
+    return 1
+}
+
+codex_mcp_server_exists() {
+    if codex mcp get "$CODEX_MCP_NAME" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Returns:
+#   0 - registered command equals "$binary_path"
+#   1 - registered command differs
+#   2 - could not inspect (codex failed, parser missing, malformed output)
+#
+# Distinguishing inspection failure from mismatch matters: install must not
+# blindly remove+re-add when codex is broken, and uninstall must not silently
+# leave a registration thinking "it's not ours" when we simply could not read.
+codex_mcp_points_to_binary() {
+    local binary_path="$1"
+    local json configured
+
+    if ! json=$(codex mcp get --json "$CODEX_MCP_NAME" 2>/dev/null); then
+        return 2
+    fi
+
+    if command -v jq &>/dev/null; then
+        configured=$(printf '%s' "$json" | jq -r '.transport.command // empty' 2>/dev/null) || return 2
+    elif command -v python3 &>/dev/null; then
+        configured=$(printf '%s' "$json" | python3 -c \
+            'import sys, json; d = json.load(sys.stdin); print(d.get("transport", {}).get("command", "") or "")' \
+            2>/dev/null) || return 2
+    else
+        # Neither jq nor python3 — refuse to guess from text output.
+        return 2
+    fi
+
+    [[ -n "$configured" && "$configured" == "$binary_path" ]]
+}
+
+configure_codex_mcp_server() {
+    local binary_path="$1"
+
+    if codex_mcp_server_exists; then
+        local match_rc=0
+        codex_mcp_points_to_binary "$binary_path" || match_rc=$?
+        case "$match_rc" in
+            0)
+                print_info "Codex MCP server configured: $CODEX_MCP_NAME"
+                return 0
+                ;;
+            1)
+                print_warn "Codex MCP server '$CODEX_MCP_NAME' points elsewhere; reconfiguring..."
+                if ! codex mcp remove "$CODEX_MCP_NAME" >/dev/null 2>&1; then
+                    print_error "Failed to remove stale Codex MCP server '$CODEX_MCP_NAME'"
+                    echo "  Run manually: codex mcp remove \"$CODEX_MCP_NAME\" && codex mcp add \"$CODEX_MCP_NAME\" -- \"$binary_path\""
+                    return 1
+                fi
+                ;;
+            *)
+                print_error "Could not inspect Codex MCP server '$CODEX_MCP_NAME'"
+                echo "  Verify with: codex mcp get --json \"$CODEX_MCP_NAME\""
+                echo "  Or install 'jq' / 'python3' so the installer can parse the registration."
+                return 1
+                ;;
+        esac
+    fi
+
+    print_info "Registering MCP server with Codex CLI as '$CODEX_MCP_NAME'..."
+
+    if codex mcp add "$CODEX_MCP_NAME" -- "$binary_path" >/dev/null 2>&1; then
+        print_info "Codex MCP server registered successfully"
+        return 0
+    fi
+
+    print_error "Failed to register Codex MCP server"
+    echo "  Run manually: codex mcp add \"$CODEX_MCP_NAME\" -- \"$binary_path\""
+    return 1
 }
 
 remove_mcp_server() {
@@ -144,6 +245,45 @@ remove_mcp_server() {
     else
         print_error "Failed to remove MCP server"
         echo "  Run manually: claude mcp remove --scope user \"$BINARY_NAME\""
+        return 1
+    fi
+}
+
+remove_codex_mcp_server() {
+    local binary_path="$1"
+
+    if ! command -v codex &>/dev/null; then
+        print_warn "Codex CLI not found — skipping Codex MCP removal"
+        return 0
+    fi
+
+    if ! codex_mcp_server_exists; then
+        print_info "Codex MCP server not configured"
+        return 0
+    fi
+
+    local match_rc=0
+    codex_mcp_points_to_binary "$binary_path" || match_rc=$?
+    case "$match_rc" in
+        0) ;;  # ours — proceed to remove
+        1)
+            print_warn "Codex MCP server '$CODEX_MCP_NAME' points elsewhere — leaving it configured"
+            return 0
+            ;;
+        *)
+            print_error "Could not inspect Codex MCP server '$CODEX_MCP_NAME' — leaving it configured"
+            echo "  Verify with: codex mcp get --json \"$CODEX_MCP_NAME\""
+            echo "  If it points to this binary, remove it manually: codex mcp remove \"$CODEX_MCP_NAME\""
+            return 1
+            ;;
+    esac
+
+    print_info "Removing MCP server from Codex CLI..."
+    if codex mcp remove "$CODEX_MCP_NAME" >/dev/null 2>&1; then
+        print_info "Codex MCP server removed"
+    else
+        print_error "Failed to remove Codex MCP server"
+        echo "  Run manually: codex mcp remove \"$CODEX_MCP_NAME\""
         return 1
     fi
 }
@@ -172,6 +312,28 @@ verify_installation() {
     print_info "Binary installed successfully"
 }
 
+show_binary_freshness() {
+    local binary_path="$1"
+    local release_path="$PROJECT_ROOT/target/release/$BINARY_NAME"
+
+    if [ ! -f "$release_path" ]; then
+        print_warn "Release binary not built: $release_path"
+        return 0
+    fi
+
+    if find "$PROJECT_ROOT/src" "$PROJECT_ROOT/assets/ruleset.json" "$PROJECT_ROOT/Cargo.toml" "$PROJECT_ROOT/build.rs" -newer "$release_path" -print -quit 2>/dev/null | grep -q .; then
+        print_warn "Source files are newer than target/release/$BINARY_NAME"
+        echo "  Rebuild and reinstall with: make install"
+    fi
+
+    if cmp -s "$release_path" "$binary_path"; then
+        print_info "Installed binary matches target/release/$BINARY_NAME"
+    else
+        print_warn "Installed binary differs from target/release/$BINARY_NAME"
+        echo "  Reinstall with: make install"
+    fi
+}
+
 # --- install ------------------------------------------------------------------
 
 perform_install() {
@@ -179,12 +341,6 @@ perform_install() {
     echo "  zhtw-mcp Installer"
     echo "=========================================="
     echo ""
-
-    # Require Claude CLI upfront — registration is mandatory.
-    check_claude_cli || {
-        print_error "Claude CLI is required for MCP registration"
-        exit 1
-    }
 
     local install_dir
     install_dir=$(detect_install_dir)
@@ -198,18 +354,45 @@ perform_install() {
     install_binary "$install_dir"
     verify_installation "$install_dir"
     check_path "$install_dir" || true
-    configure_mcp_server "$binary_path"
+
+    local detected=0
+    local failures=0
+    if command -v claude &>/dev/null; then
+        check_claude_cli >/dev/null
+        configure_mcp_server "$binary_path" || failures=$((failures + 1))
+        detected=1
+    else
+        print_warn "Claude CLI not found — skipping Claude MCP registration"
+    fi
+
+    if command -v codex &>/dev/null; then
+        check_codex_cli >/dev/null
+        configure_codex_mcp_server "$binary_path" || failures=$((failures + 1))
+        detected=1
+    else
+        print_warn "Codex CLI not found — skipping Codex MCP registration"
+    fi
+
+    if [[ "$detected" -eq 0 ]]; then
+        print_warn "No supported MCP client CLI found; binary installed only"
+    fi
 
     echo ""
     echo "=========================================="
-    echo "  Installation Complete"
+    if [[ "$failures" -gt 0 ]]; then
+        echo "  Installation Complete (with $failures registration failure(s))"
+    else
+        echo "  Installation Complete"
+    fi
     echo "=========================================="
     echo ""
     echo "Binary:  $binary_path"
-    echo "Claude MCP server configured (user scope)"
+    echo "MCP registration attempted for installed client CLIs"
     echo ""
-    echo "Next step: Run '/mcp' in Claude Code to connect"
+    echo "Next step: Restart your MCP client so it launches the new binary"
     echo ""
+
+    [[ "$failures" -eq 0 ]]
 }
 
 # --- uninstall ----------------------------------------------------------------
@@ -245,7 +428,16 @@ perform_uninstall() {
     local binary_path="$install_dir/$BINARY_NAME"
 
     kill_running_processes "$binary_path"
-    remove_mcp_server
+
+    # Guard MCP registry cleanup so a CLI hiccup never strands the binary on
+    # disk: set -e would otherwise abort before 'rm -f' below.
+    local failures=0
+    if command -v claude &>/dev/null; then
+        remove_mcp_server || failures=$((failures + 1))
+    else
+        print_warn "Claude CLI not found — skipping Claude MCP removal"
+    fi
+    remove_codex_mcp_server "$binary_path" || failures=$((failures + 1))
 
     if [ -f "$binary_path" ]; then
         rm -f "$binary_path"
@@ -256,12 +448,18 @@ perform_uninstall() {
 
     echo ""
     echo "=========================================="
-    echo "  Uninstallation Complete"
+    if [[ "$failures" -gt 0 ]]; then
+        echo "  Uninstallation Complete (with $failures cleanup failure(s))"
+    else
+        echo "  Uninstallation Complete"
+    fi
     echo "=========================================="
     echo ""
     echo "Binary removed from: $binary_path"
-    echo "MCP server configuration removed (user scope)"
+    echo "MCP server configuration removed where supported"
     echo ""
+
+    [[ "$failures" -eq 0 ]]
 }
 
 # --- status -------------------------------------------------------------------
@@ -275,17 +473,18 @@ check_status() {
     echo ""
 
     if [ -x "$binary_path" ]; then
-        local ver
-        ver=$("$binary_path" --version 2>/dev/null || echo "unknown")
-        print_info "Binary installed: $binary_path  [$ver]"
+        print_info "Binary installed: $binary_path"
+        show_binary_freshness "$binary_path"
     else
         print_warn "Binary not installed at $binary_path"
     fi
 
     # Use the exact installed path to avoid false positives from deploy.sh itself
     # or other processes whose argv contains "zhtw-mcp".
-    if pgrep -f "^${binary_path}" >/dev/null 2>&1; then
-        print_info "Process is running (PID: $(pgrep -f "^${binary_path}" | tr '\n' ' '))"
+    local proc_pattern
+    proc_pattern="^$(escape_ere "$binary_path")( |\$)"
+    if pgrep -f "$proc_pattern" >/dev/null 2>&1; then
+        print_info "Process is running (PID: $(pgrep -f "$proc_pattern" | tr '\n' ' '))"
     else
         print_info "Process is not running"
     fi
@@ -294,12 +493,36 @@ check_status() {
 
     if command -v claude &>/dev/null; then
         if mcp_server_exists; then
-            print_info "Claude MCP server configured (user scope)"
+            print_info "Claude MCP server configured"
         else
             print_warn "Claude MCP server not configured"
         fi
     else
         print_warn "claude CLI not found — cannot check registration"
+    fi
+
+    if command -v codex &>/dev/null; then
+        if codex_mcp_server_exists; then
+            local status_match_rc=0
+            codex_mcp_points_to_binary "$binary_path" || status_match_rc=$?
+            case "$status_match_rc" in
+                0)
+                    print_info "Codex MCP server configured: $CODEX_MCP_NAME"
+                    ;;
+                1)
+                    print_warn "Codex MCP server '$CODEX_MCP_NAME' is configured but points elsewhere"
+                    echo "  Expected command: $binary_path"
+                    ;;
+                *)
+                    print_warn "Could not inspect Codex MCP server '$CODEX_MCP_NAME'"
+                    echo "  Verify with: codex mcp get --json \"$CODEX_MCP_NAME\""
+                    ;;
+            esac
+        else
+            print_warn "Codex MCP server '$CODEX_MCP_NAME' not configured"
+        fi
+    else
+        print_warn "codex CLI not found — cannot check registration"
     fi
 }
 
@@ -318,8 +541,8 @@ case "${1:-help}" in
     help|"")
         echo "Usage: $0 [install|uninstall [--yes]|status]"
         echo ""
-        echo "  install          Kill running server, install binary, register with Claude Code."
-        echo "  uninstall        Kill server, remove binary, unregister."
+        echo "  install          Kill running server, install binary, register with detected MCP clients."
+        echo "  uninstall        Kill server, remove binary, unregister from detected MCP clients."
         echo "  uninstall --yes  Non-interactive uninstall (also: ZHTW_YES=1)."
         echo "  status           Show binary, process, and registration state."
         ;;
