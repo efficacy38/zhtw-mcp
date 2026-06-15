@@ -122,6 +122,7 @@ Generate configuration snippets for MCP-capable editors:
 
 ```bash
 zhtw-mcp setup claude-code
+zhtw-mcp setup codex
 ```
 
 Prints JSON configuration for the specified host. Available hosts depend on the build.

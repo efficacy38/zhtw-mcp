@@ -100,12 +100,14 @@ The binary is at `target/release/zhtw-mcp`.
 
 ### Installing
 
-The quickest way to build, install to `~/.local/bin`, and register with Claude Code:
+The quickest way to build, install to `$XDG_BIN_HOME` (or `~/.local/bin`),
+stop older server processes, and register with detected MCP clients
+(Claude Code and/or Codex):
 
 ```bash
-make install      # build release, install binary, register MCP server
-make uninstall    # remove binary and MCP registration
-make status       # check binary, process, and registration state
+make install      # build release, install binary, register detected MCP clients
+make uninstall    # remove binary and detected MCP registrations
+make status       # check binary freshness, process, and registration state
 ```
 
 For manual setup or other MCP clients:
@@ -114,11 +116,14 @@ For manual setup or other MCP clients:
 # Claude Code
 claude mcp add zhtw-mcp -- /path/to/zhtw-mcp
 
+# Codex CLI
+codex mcp add zhtw -- /path/to/zhtw-mcp
+
 # OpenCode
 opencode mcp add zhtw-mcp /path/to/zhtw-mcp
 ```
 
-Codex CLI or other MCP clients -- add to `.mcp.json` in your project root:
+Other MCP clients may use `.mcp.json` in your project root:
 
 ```json
 {
