@@ -88,6 +88,24 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sysprog21/zhtw-mcp/rele
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/sysprog21/zhtw-mcp/releases/latest/download/zhtw-mcp-installer.ps1 | iex"
 ```
 
+### Nix
+
+On any system with Nix and flakes enabled:
+
+```bash
+# builds and drops into a temporary shell with `zhtw-mcp` on `$PATH`
+nix shell "github:sysprog21/zhtw-mcp"
+
+# builds and runs zhtw-mcp (you can use this command to register with an MCP
+# client as shown in the Installing section)
+nix run "github:sysprog21/zhtw-mcp"
+```
+
+> **Note:** The first run compiles the project from source, which can take
+several minutes. Subsequent runs reuse the Nix store cache and start instantly.
+To speed up the initial build, run `nix build --cores 0 "github:sysprog21/zhtw-mcp"`
+first. And `--cores 0` tells Nix to use all available CPU cores.
+
 ### Building from source
 
 Requires stable Rust 1.91+.
